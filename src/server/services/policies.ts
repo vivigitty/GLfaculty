@@ -1,0 +1,230 @@
+import { z } from "zod";
+import { C, db } from "../db";
+import type { AcademicYear, PolicyRecord, Submission, SubmissionContent } from "../domain/schemas";
+import { audit, type Actor } from "../audit";
+import { getPolicy, parsePolicy } from "../policy/load";
+import type { Policy } from "../policy/schema";
+import type { Transaction } from "../store/fileStore";
+import { checkParamValue, editableParameters, type PolicyParam } from "@/lib/policyParams";
+import { UserError, nowIso, reasonRequired } from "./common";
+
+/**
+ * Admin policy editing. A policy version is immutable once installed, so "editing"
+ * always creates a NEW version from a base version plus parameter edits. The new
+ * version can be assigned to an academic year (this year, if nothing has been
+ * submitted yet, or the next year). Every change is audited with a value diff.
+ */
+
+export const policyEditInput = z.object({
+  baseVersion: z.string().min(1),
+  newVersion: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{2,39}$/, "Use 3–40 letters, digits, dots or dashes, e.g. 2026-27.v1."),
+  label: z.string().trim().min(3, "Enter a short description.").max(120),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date."),
+  edits: z.record(z.string().max(300), z.string().max(40)),
+  assignToYearId: z.string().max(40).nullable(),
+});
+export type PolicyEditInput = z.input<typeof policyEditInput>;
+
+export type ParamChange = { id: string; label: string; before: string; after: string };
+
+function setAt(obj: unknown, path: (string | number)[], value: unknown) {
+  let cur = obj as Record<string | number, unknown>;
+  for (const k of path.slice(0, -1)) cur = cur[k] as Record<string | number, unknown>;
+  const last = path[path.length - 1]!;
+  if (value === undefined) delete cur[last];
+  else cur[last] = value;
+}
+function getAt(obj: unknown, path: (string | number)[]): unknown {
+  let cur = obj as Record<string | number, unknown> | undefined;
+  for (const k of path) cur = cur?.[k] as Record<string | number, unknown> | undefined;
+  return cur;
+}
+
+/** Applies validated parameter edits to a deep copy of `base`. Pure; used by the service and tests. */
+export function applyParameterEdits(base: Policy, edits: Record<string, string>): { raw: Record<string, unknown>; changes: ParamChange[]; errors: { path: string; message: string }[] } {
+  const params = new Map<string, PolicyParam>(editableParameters(base).map((p) => [p.id, p]));
+  const raw = JSON.parse(JSON.stringify(base)) as Record<string, unknown>;
+  const changes: ParamChange[] = [];
+  const errors: { path: string; message: string }[] = [];
+  for (const [id, value] of Object.entries(edits)) {
+    const p = params.get(id);
+    if (!p) {
+      errors.push({ path: `edits.${id}`, message: "This value cannot be edited from the portal." });
+      continue;
+    }
+    const v = value.trim();
+    if (v === p.value) continue;
+    const err = checkParamValue(p, v);
+    if (err) {
+      errors.push({ path: `edits.${id}`, message: `${p.label}: ${err}` });
+      continue;
+    }
+    const k = p.kind;
+    if (k.type === "decimal") setAt(raw, p.path, v === "" ? null : v);
+    else if (k.type === "int") setAt(raw, p.path, v === "" ? undefined : Number(v));
+    else if (k.type === "bool") setAt(raw, p.path, v === "true");
+    else if (k.type === "enum") setAt(raw, p.path, v);
+    else if (k.type === "member") {
+      // UI asks "counts?"; the stored list holds the EXCLUDED columns.
+      const list = getAt(raw, p.path) as string[];
+      const excluded = v === "false";
+      const next = excluded ? [...new Set([...list, k.member])] : list.filter((x) => x !== k.member);
+      setAt(raw, p.path, next);
+    } else {
+      const cell = getAt(raw, p.path) as Record<string, unknown>;
+      if (v === "") {
+        delete cell.factor;
+        cell.range = k.range;
+      } else {
+        cell.factor = v;
+        delete cell.range;
+      }
+    }
+    changes.push({ id, label: `${p.group} › ${p.label}`, before: p.value || "(blank)", after: v || "(blank)" });
+  }
+  return { raw, changes, errors };
+}
+
+/**
+ * Points a year at a policy version. Blocked while any submission is in progress or approved.
+ * Rejected submissions do not block: they stay locked under the version they were scored with,
+ * and the faculty member can start a fresh submission under the new version. Drafts follow the year.
+ */
+export async function assignPolicyToYear(tx: Transaction, yearId: string, version: string, actor: Actor, reason: string): Promise<AcademicYear> {
+  const ay = await tx.get<AcademicYear>(C.academicYears, yearId);
+  if (!ay) throw new UserError("Academic year not found.", [{ path: "assignToYearId", message: "Choose an existing academic year." }]);
+  if (ay.policyVersion === version) return ay;
+  const all = await tx.list<Submission>(C.submissions, (s) => s.academicYearId === yearId);
+  const blocking = all.filter((s) => s.status !== "DRAFT" && s.status !== "REJECTED");
+  if (blocking.length > 0) {
+    throw new UserError(
+      `${ay.label} has ${blocking.length} submission(s) that are submitted, under review, awaiting clarification or approved under ${ay.policyVersion}, so its policy cannot change. ` +
+        "Finish or reject them first, or assign the new version to another year.",
+      [{ path: "assignToYearId", message: "Active submissions exist for this year." }],
+    );
+  }
+  const subs = all.filter((s) => s.status === "DRAFT");
+  const now = nowIso();
+  const next = await tx.update<AcademicYear>(C.academicYears, { ...ay, policyVersion: version, updatedAt: now });
+  await audit(tx, actor, { action: "ACADEMIC_YEAR_POLICY_ASSIGNED", entityType: "academicYear", entityId: yearId, before: { policyVersion: ay.policyVersion }, after: { policyVersion: version }, reason });
+  // Unsubmitted drafts move to the year's policy. Values the new policy no longer has are removed
+  // from the draft (and preserved in the audit record); teaching hours are noted on the row.
+  const policy = parsePolicy((await tx.require<PolicyRecord>(C.policies, version)).policy, `policy ${version}`);
+  for (const d of subs) {
+    const { content, removed } = fitContentToPolicy(d.content, policy);
+    await tx.update<Submission>(C.submissions, { ...d, policyVersion: version, content, updatedAt: now });
+    await audit(tx, actor, {
+      action: "DRAFT_POLICY_UPDATED",
+      entityType: "submission",
+      entityId: d.id,
+      before: { policyVersion: d.policyVersion, removedValues: removed },
+      after: { policyVersion: version },
+      reason,
+    });
+  }
+  return next;
+}
+
+export async function createPolicyVersion(input: PolicyEditInput, reason: string, actor: Actor): Promise<{ version: string; changes: ParamChange[] }> {
+  const v = policyEditInput.parse(input);
+  const why = reasonRequired(reason, "creating a policy version");
+  const base = await getPolicy(v.baseVersion);
+  const { raw, changes, errors } = applyParameterEdits(base, v.edits);
+  if (errors.length) throw new UserError("Some values are not valid. Check the highlighted fields.", errors);
+  raw.version = v.newVersion;
+  raw.label = v.label;
+  raw.effectiveFrom = v.effectiveFrom;
+  let policy: Policy;
+  try {
+    policy = parsePolicy(raw, `policy ${v.newVersion}`);
+  } catch (e) {
+    throw new UserError((e as Error).message);
+  }
+  return db().transact(async (tx) => {
+    if (await tx.get<PolicyRecord>(C.policies, v.newVersion)) {
+      throw new UserError(`Version ${v.newVersion} already exists. Policy versions are immutable — choose a new name.`, [{ path: "newVersion", message: "Already exists." }]);
+    }
+    await tx.create<PolicyRecord>(C.policies, {
+      id: v.newVersion,
+      status: "ACTIVE",
+      source: `portal (from ${v.baseVersion})`,
+      policy: JSON.parse(JSON.stringify(policy)) as Record<string, unknown>,
+      createdAt: nowIso(),
+      createdBy: actor.ref,
+      changeReason: why,
+    });
+    await audit(tx, actor, {
+      action: "POLICY_VERSION_CREATED",
+      entityType: "policy",
+      entityId: v.newVersion,
+      before: { baseVersion: v.baseVersion },
+      after: { label: v.label, effectiveFrom: v.effectiveFrom, changes },
+      reason: why,
+    });
+    if (v.assignToYearId) await assignPolicyToYear(tx, v.assignToYearId, v.newVersion, actor, why);
+    return { version: v.newVersion, changes };
+  });
+}
+
+/** Suggests the next free version name, e.g. 2025-26.v3, or 2026-27.v1 for a new year. */
+export function suggestVersionName(existing: string[], yearLabel: string): string {
+  for (let n = 1; ; n++) {
+    const name = `${yearLabel}.v${n}`;
+    if (!existing.includes(name)) return name;
+  }
+}
+
+/**
+ * Drops draft values the given policy does not define (service roles, disclosures, research
+ * sections/fields, teaching columns) so the faculty member is never left with an error they
+ * cannot clear. Returns what was removed so the caller can audit it.
+ */
+export function fitContentToPolicy(content: SubmissionContent, policy: Policy): { content: SubmissionContent; removed: string[] } {
+  const removed: string[] = [];
+  const cols = new Map(policy.teaching.columns.map((c) => [c.key, c]));
+  const teaching = content.teaching.map((r) => {
+    const hours: Record<string, string> = {};
+    const dropped: string[] = [];
+    for (const [k, h] of Object.entries(r.hours)) {
+      if (cols.has(k)) hours[k] = h;
+      else if (h.trim() !== "") dropped.push(`${k}: ${h} h`);
+    }
+    if (!dropped.length) return { ...r, hours };
+    removed.push(`teaching ${r.courseName || r.id}: ${dropped.join(", ")}`);
+    const note = `Re-enter under the current programme columns (was ${dropped.join(", ")}).`;
+    return { ...r, hours, notes: r.notes ? `${r.notes} ${note}` : note };
+  });
+  const research = content.research.flatMap((e) => {
+    const section = policy.researchSections.find((s) => s.key === e.sectionKey);
+    if (!section) {
+      removed.push(`research ${e.sectionKey} entry ${e.id}: ${JSON.stringify(e.values)}`);
+      return [];
+    }
+    const values: typeof e.values = {};
+    for (const [k, v] of Object.entries(e.values)) {
+      if (section.fields.some((f) => f.key === k)) values[k] = v;
+      else if (v !== null && v !== "" && v !== false) removed.push(`research ${e.sectionKey} entry ${e.id} field ${k}: ${String(v)}`);
+    }
+    return [{ ...e, values }];
+  });
+  const roleKeys = new Set(policy.service.roles.map((r) => r.key));
+  const roles = Object.fromEntries(
+    Object.entries(content.service.roles).filter(([k, v]) => {
+      if (roleKeys.has(k)) return true;
+      if (v.quantity.trim() !== "" || v.description.trim() !== "") removed.push(`service role ${k}: ${v.quantity} ${v.description}`.trim());
+      return false;
+    }),
+  );
+  const discKeys = new Set(policy.service.disclosures.map((d) => d.key));
+  const disclosures = Object.fromEntries(
+    Object.entries(content.service.disclosures).filter(([k, v]) => {
+      if (discKeys.has(k)) return true;
+      if (v.trim() !== "") removed.push(`disclosure ${k}: ${v}`);
+      return false;
+    }),
+  );
+  return { content: { ...content, teaching, research, service: { roles, disclosures } }, removed };
+}

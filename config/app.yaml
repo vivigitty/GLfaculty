@@ -1,0 +1,69 @@
+# Application settings. Policy values live in config/policy/*.yaml.
+institutionName: "Great Lakes Institute of Management"
+appTitle: "RTS Faculty Portal"
+pdfTemplateVersion: "rts-pdf-1.0"
+
+features:
+  facultyDirectDownload: true        # faculty can download their own PDFs in the portal
+  facultyEmailCorrectionRequests: true
+  evidenceUploads: false             # not in first release
+
+notifications:
+  adminOnSubmission: true            # uses ADMIN_NOTIFY_EMAIL
+  facultyOnClarification: true
+  facultyOnDecision: true
+
+email:
+  maxAutomaticAttempts: 3            # bounded retries for transient provider failures
+  # Placeholders: {{name}} {{year}} {{status}} {{reference}} {{link}} {{message}}
+  # Subjects deliberately avoid submission details.
+  templates:
+    INITIAL_EXPORT:
+      subject: "RTS submission received — {{year}}"
+      body: |
+        Dear {{name}},
+
+        Thank you. Your RTS submission for {{year}} has been received (reference {{reference}}).
+        A PDF copy of your submission is attached, showing the points you submitted.
+        Approved points will be sent in a final statement once the Admin completes the review.
+
+        Please confirm in the portal whether you received this email: {{link}}
+
+        RTS Office
+    FINAL_EXPORT:
+      subject: "RTS review completed — {{year}}"
+      body: |
+        Dear {{name}},
+
+        The review of your RTS submission for {{year}} (reference {{reference}}) is complete.
+        The attached PDF shows your submitted points alongside the Admin-approved points.
+
+        Please confirm receipt in the portal: {{link}}
+
+        RTS Office
+    RESEND_EXPORT:
+      subject: "RTS document — {{year}}"
+      body: |
+        Dear {{name}},
+
+        As requested, the latest PDF for your RTS submission for {{year}} (reference {{reference}}) is attached.
+
+        Please confirm receipt in the portal: {{link}}
+
+        RTS Office
+    STATUS_NOTICE:
+      subject: "RTS submission update — {{year}}"
+      body: |
+        Dear {{name}},
+
+        There is an update on your RTS submission for {{year}}: {{status}}.
+        {{message}}
+
+        Please sign in to the portal for details: {{link}}
+
+        RTS Office
+    ADMIN_NOTICE:
+      subject: "New RTS submission received"
+      body: |
+        A faculty member has submitted their RTS record for {{year}} (reference {{reference}}).
+        Review it in the Admin portal: {{link}}

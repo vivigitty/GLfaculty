@@ -1,0 +1,430 @@
+# ---------------------------------------------------------------------------
+# RTS POLICY CONFIGURATION — 2025-26 v2
+# ---------------------------------------------------------------------------
+# Sources, in precedence order:
+#   1. "Updated-RTS points_proposed revisions.xlsx" (owner, Nov 2026) — FINAL
+#      source of truth for point values.
+#   2. Sign-off mock-up comments (RTS_Faculty_Input_and_Scoring_Signoff_Mockup,
+#      Nov 2026) — decisions on prorating, rounding, CLD, author counts, etc.
+#   3. Earlier owner decisions (spec v2.2) for items the revision does not list.
+#   4. Guidelines workbook (2023).
+#
+#   * Every point value and rate here can be edited from Admin > Policy >
+#     "Edit as new version"; the portal saves a NEW immutable version that is
+#     assigned per academic year. This file is only the seed.
+#   * `signoff: PENDING` = value in use but awaiting owner confirmation; the app
+#     shows an Admin-review warning wherever it affects a score.
+#     Open items: docs/OPEN_QUESTIONS.md
+#   * Money-relevant numbers are quoted strings so they are read exactly.
+# ---------------------------------------------------------------------------
+
+version: "2025-26.v2"
+label: "RTS points revision (Nov 2026) + sign-off decisions"
+effectiveFrom: "2025-04-01"
+currency: INR
+
+parameters:
+  researchRatePerPoint: "7000"        # owner-confirmed; editable per academic year
+  minimumPoints:
+    STANDARD: "200"
+    JUNIOR: "30"
+  prorating:
+    enabled: true
+    # Owner decision (sign-off 2026-11): days in service in the year ÷ total days
+    # in the year, for new AND exiting faculty. Joining/exit dates inclusive.
+    basis: PERIOD_DAYS
+    dayCount: END_INCLUSIVE           # used only by the legacy FIXED_DAYS basis
+    daysInYear: 365                   # used only by the legacy FIXED_DAYS basis
+    signoff: CONFIRMED
+  pointsDecimalPlaces: 2
+  paymentRounding: CEIL_RUPEE         # owner decision: ceiling to the next rupee
+  paymentRoundingSignoff: CONFIRMED
+  differential: CORRECTED_MINUS_PAID
+  consultingRevenueShare:             # informational; not part of RTS points
+    facultyPercent: "70"
+    institutionPercent: "30"
+    basis: "after expenses; each assignment approved by the Director and the report accepted by the client"
+
+# ---------------------------------------------------------------------------
+designations:
+  # pointRate = "designationRate" in the progressive payment formula.
+  pointRateSignoff: CONFIRMED         # Open Decisions #13 confirmed (sign-off 2026-11)
+  items:
+    - { key: PROFESSOR, label: Professor, facultyCategory: STANDARD, pointRate: "7000", overloadRatePerHour: "7000", cldRatePerHour: "9000" }
+    - { key: SENIOR_ASSOCIATE_PROFESSOR, label: Senior Associate Professor, facultyCategory: STANDARD, pointRate: "6500", overloadRatePerHour: "6500", cldRatePerHour: "8000" }
+    - { key: ASSOCIATE_PROFESSOR, label: Associate Professor, facultyCategory: STANDARD, pointRate: "6500", overloadRatePerHour: "6000", cldRatePerHour: "7000" }
+    - { key: ASSISTANT_PROFESSOR, label: Assistant Professor, facultyCategory: STANDARD, pointRate: "6000", overloadRatePerHour: "6000", cldRatePerHour: "7000" }
+    - { key: JUNIOR_FACULTY, label: Junior Faculty, facultyCategory: JUNIOR, pointRate: "5000", overloadRatePerHour: null, cldRatePerHour: null }
+    - { key: LIBRARIAN, label: Librarian, facultyCategory: JUNIOR, pointRate: "5000", overloadRatePerHour: null, cldRatePerHour: null }
+
+researchStatuses:
+  - { key: RESEARCH_ACTIVE, label: "Research-active", contractualLoadHours: 120, teachingCapHours: 225 }
+  - { key: NON_RESEARCH, label: "Non-research faculty", contractualLoadHours: 120, teachingCapHours: 250 }
+  - { key: PROFESSOR_OF_PRACTICE, label: "Professor of Practice", contractualLoadHours: 160, teachingCapHours: 250 }
+  - { key: RESEARCH_INACTIVE_4Y, label: "Not research-active for last 4 years", contractualLoadHours: 160, teachingCapHours: 250 }
+
+# ---------------------------------------------------------------------------
+teaching:
+  # Sign-off: "Other / GLPSS / OPGDM" split into two columns; GLPSS is treated
+  # like any non-CLD hours. FPM hours count at the normal rate (revision note).
+  columns:
+    - { key: pgpm, label: "PGPM" }
+    - { key: pgdm2, label: "PGDM II Year" }
+    - { key: pgdm1, label: "PGDM I Year" }
+    - { key: flex, label: "FLEX" }
+    - { key: xpm, label: "XPM" }
+    - { key: fpm, label: "FPM" }
+    - { key: glpss, label: "GLPSS" }
+    - { key: opgdm, label: "OPGDM", signoff: PENDING, note: "OPGDM hours count for T points (as the old combined Others column did) and, per the Guidelines, not towards the teaching cap. Owner to confirm." }
+    - { key: cld, label: "CLD" }
+  courseTypes:
+    - { key: CORE, label: "Core course", pointsPerHour: "1" }
+    - { key: ELECTIVE, label: "Elective", pointsPerHour: "1" }
+    - { key: LARGE_ELECTIVE, label: "Elective, 100+ students in one section, evaluated by faculty", pointsPerHour: "1.25", minStudentsPerSection: 100, note: "Admin verifies section size and that evaluation is by the faculty member." }
+  pointsConversion:
+    pointsPerHour: "1"                # core classes: 1 point per non-CLD hour (confirmed)
+    excludedColumns: [cld]            # CLD earns no points and is excluded from payables (confirmed)
+    signoff: CONFIRMED
+  newAssistantProfessor:
+    contractualLoadHours: 80
+    firstYearsOfService: 2
+  capExcludedColumns: [cld, opgdm]    # Guidelines: CLD / PGDM Online excluded from the cap
+  cld:
+    showCompensationSeparately: false # owner: "no calculation needed; excluded from payables"
+    includedInPointsPayment: false
+    signoff: CONFIRMED
+
+# ---------------------------------------------------------------------------
+publication:
+  # Revision: values unchanged (200/150/100/50/20/6); category names updated.
+  classes:
+    - { key: FT50, label: "FT50 / UT Dallas", basePoints: "200" }
+    - { key: ABDC_A_STAR, label: "ABDC A*", basePoints: "150" }
+    - { key: ABDC_A, label: "ABDC A / Scopus top 4 percentile", basePoints: "100" }
+    - { key: ABDC_B, label: "ABDC B / rest of Scopus Q1", basePoints: "50" }
+    - { key: ABDC_C, label: "ABDC C / Scopus Q2", basePoints: "20" }
+    - { key: SCOPUS_Q3_Q4, label: "Scopus Q3 / Q4", basePoints: "6" }
+  paidJournalPoints: "0"
+  soleAuthor:
+    factor: "1.00"
+    signoff: CONFIRMED                # scenario matrix approved (FT50 sole author = 200)
+  # Sign-off: the co-author count EXCLUDES the submitting faculty member;
+  # 3+ co-authors use the "three or more" bucket.
+  coAuthorCounts:
+    - { key: NONE, label: "None (sole author)" }
+    - { key: ONE, label: "One" }
+    - { key: TWO, label: "Two" }
+    - { key: THREE_PLUS, label: "Three or more" }
+  contributions:
+    - { key: EQUAL, label: "Equal (stated in author notes)", coAuthors: [ONE, TWO, THREE_PLUS] }
+    - { key: FIRST, label: "1st", coAuthors: [ONE, TWO] }
+    - { key: SECOND, label: "2nd", coAuthors: [ONE, TWO] }
+    - { key: THIRD, label: "3rd", coAuthors: [TWO] }
+    - { key: FIRST_OR_SECOND, label: "1st or 2nd", coAuthors: [THREE_PLUS] }
+    - { key: THIRD_OR_LOWER, label: "3rd or lower", coAuthors: [THREE_PLUS] }
+  affiliationMixes:
+    - { key: ALL_GL, label: "All co-authors from Great Lakes", coAuthors: [ONE, TWO, THREE_PLUS] }
+    - { key: ALL_OTHER, label: "All co-authors from other institutions", coAuthors: [ONE, TWO, THREE_PLUS] }
+    - { key: TWO_OTHER_1ST, label: "Mixed (two co-authors, one GL): other author 1st", coAuthors: [TWO] }
+    - { key: TWO_OTHER_2ND, label: "Mixed (two co-authors, one GL): other author 2nd", coAuthors: [TWO] }
+    - { key: TWO_OTHER_3RD, label: "Mixed (two co-authors, one GL): other author 3rd", coAuthors: [TWO] }
+    - { key: THREE_PLUS_OTHER_1ST_2ND, label: "Mixed (3+ co-authors, one/two GL): other author 1st/2nd", coAuthors: [THREE_PLUS] }
+    - { key: THREE_PLUS_OTHER_3RD_LOWER, label: "Mixed (3+ co-authors, one/two GL): other author 3rd or lower", coAuthors: [THREE_PLUS] }
+  # Guidelines contribution table. Sign-off confirmed: exact cells are applied,
+  # range cells go to Admin/Dean (0 provisional points). Admin can replace a
+  # range with a fixed factor in the policy editor.
+  contributionMatrix:
+    - { coAuthors: ONE, contribution: EQUAL, mix: ALL_GL, factor: "0.50" }
+    - { coAuthors: ONE, contribution: EQUAL, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: ONE, contribution: FIRST, mix: ALL_GL, factor: "0.60" }
+    - { coAuthors: ONE, contribution: FIRST, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: ONE, contribution: SECOND, mix: ALL_GL, factor: "0.40" }
+    - { coAuthors: ONE, contribution: SECOND, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: TWO, contribution: EQUAL, mix: ALL_GL, factor: "0.33" }
+    - { coAuthors: TWO, contribution: EQUAL, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: TWO, contribution: EQUAL, mix: TWO_OTHER_1ST, factor: "0.50" }
+    - { coAuthors: TWO, contribution: EQUAL, mix: TWO_OTHER_2ND, factor: "0.50" }
+    - { coAuthors: TWO, contribution: EQUAL, mix: TWO_OTHER_3RD, factor: "0.50" }
+    - { coAuthors: TWO, contribution: FIRST, mix: ALL_GL, factor: "0.40" }
+    - { coAuthors: TWO, contribution: FIRST, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: TWO, contribution: FIRST, mix: TWO_OTHER_2ND, factor: "0.70" }
+    - { coAuthors: TWO, contribution: FIRST, mix: TWO_OTHER_3RD, factor: "0.60" }
+    - { coAuthors: TWO, contribution: SECOND, mix: ALL_GL, factor: "0.35" }
+    - { coAuthors: TWO, contribution: SECOND, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: TWO, contribution: SECOND, mix: TWO_OTHER_1ST, factor: "0.50" }
+    - { coAuthors: TWO, contribution: SECOND, mix: TWO_OTHER_3RD, factor: "0.40" }
+    - { coAuthors: TWO, contribution: THIRD, mix: ALL_GL, factor: "0.25" }
+    - { coAuthors: TWO, contribution: THIRD, mix: ALL_OTHER, factor: "0.80" }
+    - { coAuthors: TWO, contribution: THIRD, mix: TWO_OTHER_1ST, factor: "0.50" }
+    - { coAuthors: TWO, contribution: THIRD, mix: TWO_OTHER_2ND, factor: "0.30" }
+    - { coAuthors: THREE_PLUS, contribution: EQUAL, mix: ALL_GL, factor: "0.25" }
+    - { coAuthors: THREE_PLUS, contribution: EQUAL, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: THREE_PLUS, contribution: EQUAL, mix: THREE_PLUS_OTHER_1ST_2ND, factor: "0.50" }
+    - { coAuthors: THREE_PLUS, contribution: EQUAL, mix: THREE_PLUS_OTHER_3RD_LOWER, factor: "0.50" }
+    - { coAuthors: THREE_PLUS, contribution: FIRST_OR_SECOND, mix: ALL_GL, factor: "0.35" }
+    - { coAuthors: THREE_PLUS, contribution: FIRST_OR_SECOND, mix: ALL_OTHER, factor: "1.00" }
+    - { coAuthors: THREE_PLUS, contribution: FIRST_OR_SECOND, mix: THREE_PLUS_OTHER_1ST_2ND, range: "50–70%" }
+    - { coAuthors: THREE_PLUS, contribution: FIRST_OR_SECOND, mix: THREE_PLUS_OTHER_3RD_LOWER, range: "50–80%" }
+    - { coAuthors: THREE_PLUS, contribution: THIRD_OR_LOWER, mix: ALL_GL, factor: "0.15" }
+    - { coAuthors: THREE_PLUS, contribution: THIRD_OR_LOWER, mix: ALL_OTHER, factor: "0.70" }
+    - { coAuthors: THREE_PLUS, contribution: THIRD_OR_LOWER, mix: THREE_PLUS_OTHER_1ST_2ND, range: "30–40%" }
+
+grant:
+  # Revision: individual equal share ₹50,000–₹2,00,000 = 5; > ₹2,00,000 = 10.
+  # Shares below ₹50,000 are not listed in the revision and score 0.
+  tiers:
+    - { below: "50000", points: "0" }           # share < ₹50,000
+    - { upToInclusive: "200000", points: "5" }  # ₹50,000 ≤ share ≤ ₹2,00,000
+    - { points: "10" }                          # share > ₹2,00,000
+
+researchSections:
+  - key: PUBLICATION
+    label: "Accepted journal publications"
+    help: "One row per accepted paper. Base points come from the publication class; the Guidelines contribution table gives your share. Count co-authors excluding yourself."
+    calc: publication
+    fields:
+      - { key: title, label: "Title of paper", type: text, required: true }
+      - { key: journal, label: "Journal", type: text, required: true }
+      - { key: publicationClass, label: "Publication class (as on policy date)", type: select, required: true, optionsFrom: publication.classes }
+      - { key: paidJournal, label: "Paid journal?", type: boolean }
+      - { key: acceptanceDate, label: "Acceptance / publication date", type: date }
+      - { key: doiOrUrl, label: "DOI / URL", type: url }
+      - { key: coAuthorCount, label: "Number of co-authors (excluding you)", type: select, required: true, optionsFrom: publication.coAuthorCounts }
+      - { key: contribution, label: "Your contribution / author position", type: select, optionsFrom: publication.contributions, filterBy: coAuthorCount, hiddenWhen: { coAuthorCount: NONE } }
+      - { key: affiliationMix, label: "Co-author affiliation mix", type: select, optionsFrom: publication.affiliationMixes, filterBy: coAuthorCount, hiddenWhen: { coAuthorCount: NONE } }
+      - { key: equalContributionStated, label: "Equal contribution explicitly stated in author notes", type: boolean, hiddenWhen: { coAuthorCount: NONE } }
+      - { key: notes, label: "Notes for Admin (co-author roles, rank evidence)", type: textarea }
+
+  - key: REVISE_RESUBMIT
+    label: "Papers with R&R status"
+    help: "Recorded for information only. R&R papers carry zero points and zero compensation."
+    calc: zero
+    zeroReason: "R&R is informational only (owner decision)."
+    fields:
+      - { key: title, label: "Title of paper", type: text, required: true }
+      - { key: journal, label: "Journal", type: text, required: true }
+      - { key: publicationClass, label: "Journal class", type: select, optionsFrom: publication.classes }
+      - { key: notes, label: "Notes", type: textarea }
+
+  - key: PAPER_REVIEW
+    label: "Papers reviewed"
+    help: "Reviewing is external service and carries zero points."
+    calc: zero
+    zeroReason: "Reviewing carries no compensation (Guidelines)."
+    fields:
+      - { key: journal, label: "Journal / conference", type: text, required: true }
+      - key: reviewCategory
+        label: "Category"
+        type: select
+        options:
+          - { key: ABDC_A_STAR, label: "ABDC A*" }
+          - { key: ABDC_A, label: "ABDC A" }
+          - { key: ABDC_B, label: "ABDC B" }
+          - { key: ABDC_C, label: "ABDC C" }
+          - { key: IIM_JOURNAL, label: "IIMA/C/L journal" }
+          - { key: CONFERENCE, label: "Area-approved conference / IIM / IIT equivalent" }
+      - { key: reviewDate, label: "Review date", type: date }
+
+  - key: EDITORSHIP
+    label: "Journal editorial board membership"
+    help: "Points depend on the journal's classification. Only your best 2 journals count."
+    calc: lookup
+    lookupField: journalClass
+    maxScoredEntries: 2
+    fields:
+      - { key: journal, label: "Journal", type: text, required: true }
+      - key: journalClass
+        label: "Journal classification"
+        type: select
+        required: true
+        options:
+          - { key: FT50, label: "FT50", points: "30" }
+          - { key: ABDC_A_STAR, label: "ABDC A*", points: "25" }
+          - { key: ABDC_A, label: "ABDC A", points: "20" }
+          - { key: ABDC_B, label: "ABDC B", points: "10" }
+          - { key: ABDC_C, label: "ABDC C", points: "5" }
+          - { key: OTHER, label: "Other / unclassified journal", points: "0", eligible: false, note: "Not in the revised editorship table." }
+      - { key: role, label: "Editorial role", type: text }
+      - { key: startDate, label: "Start date", type: date }
+
+  - key: BOOK
+    label: "Books / book chapters"
+    help: "From reputed publishers. Points apply to new books only. A book chapter must not be a conference paper."
+    calc: lookup
+    lookupField: bookType
+    reviewNote: "Admin to verify new-book status and publisher eligibility."
+    fields:
+      - { key: title, label: "Title", type: text, required: true }
+      - key: bookType
+        label: "Type"
+        type: select
+        required: true
+        options:
+          - { key: BOOK_INTERNATIONAL, label: "Book publication — International publisher", points: "30" }
+          - { key: BOOK_NATIONAL, label: "Book publication — National publisher", points: "15" }
+          - { key: BOOK_EDITING, label: "Editing and publishing a book", points: "10" }
+          - { key: CHAPTER_INTERNATIONAL, label: "Book chapter — International", points: "5" }
+          - { key: CHAPTER_NATIONAL, label: "Book chapter — National", points: "2" }
+          - { key: REVISED_EDITION, label: "Book revised edition", points: "0", note: "Revised editions carry zero points." }
+      - { key: publisher, label: "Publisher", type: text, required: true }
+      - { key: publicationDate, label: "Publication date", type: date }
+      - { key: isbnOrUrl, label: "ISBN / URL", type: text }
+
+  - key: CASE
+    label: "Case studies"
+    help: "International: HBSP, INSEAD, IMD, Darden, HKUST, Wharton, Stanford, Ivey. Emerald case studies are a separate category. Other repositories are at Dean discretion."
+    calc: lookup
+    lookupField: caseType
+    reviewNote: "Admin to verify the case repository."
+    fields:
+      - { key: title, label: "Case title", type: text, required: true }
+      - key: caseType
+        label: "Case type"
+        type: select
+        required: true
+        options:
+          - { key: INTERNATIONAL, label: "HBSP / INSEAD / IMD / Darden / HKUST / Wharton / Stanford / Ivey", points: "30" }
+          - { key: EMERALD, label: "Emerald case study", points: "10" }
+          - { key: INDIAN, label: "Indian case (IIMB, SP Jain, XLRI or equivalent)", points: "2", note: "Not listed in the Nov 2026 revision; earlier owner decision retained." }
+      - { key: repository, label: "Repository / publisher", type: text, required: true }
+      - { key: publicationDate, label: "Publication date", type: date }
+      - { key: referenceNumber, label: "Case reference / URL", type: text }
+
+  - key: CONFERENCE
+    label: "Conference papers, track chairs and sessions"
+    help: "Recorded for disclosure; zero points. Conferences in newer areas (AR, VR, Metaverse, Blockchain, digital/crypto currency, Sustainability, AI, ML, DL, etc.) — suitability for recognition is decided by the Director. Conducting a conference for GLIM Chennai is entered under Service."
+    calc: zero
+    zeroReason: "Conference presentations, sessions and track chairs carry zero points (Guidelines / Nov 2026 revision)."
+    fields:
+      - { key: title, label: "Paper title / role", type: text, required: true }
+      - { key: conference, label: "Conference", type: text, required: true }
+      - key: conferenceType
+        label: "Type"
+        type: select
+        options:
+          - { key: AREA_INTERNATIONAL, label: "Area-listed international conference" }
+          - { key: IIM_TOP20, label: "Conference by IIMs / top 20 B-schools in India" }
+          - { key: OTHER_INTERNATIONAL, label: "Other international conference outside India" }
+          - { key: OTHER_INDIAN, label: "Other Indian conference" }
+          - { key: TRACK_CHAIR_INTERNATIONAL, label: "Track chair — international conference abroad (10 years' standing)" }
+          - { key: TRACK_CHAIR_NATIONAL, label: "Track chair — national conference (other than GLIM-G; 10 years' standing, reputed institute)" }
+          - { key: SESSION_CHAIR, label: "Session chair in an outside conference" }
+      - { key: fundedByGl, label: "Travel and stay funded by GL?", type: boolean }
+      - { key: date, label: "Date", type: date }
+
+  - key: GRANT
+    label: "External research grants / industry or government-sponsored research"
+    help: "Counted when the grant is received. The grant is split equally among participating faculty; the points tier uses your individual share."
+    calc: grant
+    fields:
+      - { key: title, label: "Project title", type: text, required: true }
+      - key: grantType
+        label: "Type"
+        type: select
+        required: true
+        options:
+          - { key: EXTERNAL_RESEARCH, label: "External research grant" }
+          - { key: INDUSTRY_SPONSORED, label: "Industry-sponsored research" }
+          - { key: GOVERNMENT_SPONSORED, label: "Government-sponsored body research" }
+      - { key: sponsor, label: "Sponsor", type: text, required: true }
+      - { key: totalAmount, label: "Total grant amount received (₹)", type: money, required: true }
+      - { key: participatingFaculty, label: "Number of participating GL faculty (incl. you)", type: integer, required: true, min: 1 }
+      - { key: sanctionDate, label: "Date received", type: date }
+      - { key: reference, label: "Sanction reference", type: text }
+
+  - key: DOCTORAL
+    label: "PhD guidance & doctoral committees (GLIM Chennai only)"
+    help: "Only at GLIM Chennai, after commencement of the FPM programme."
+    calc: lookup
+    lookupField: role
+    fields:
+      - { key: student, label: "Student / thesis", type: text, required: true }
+      - key: role
+        label: "Role"
+        type: select
+        required: true
+        options:
+          - { key: PAPER_GUIDANCE_Y1, label: "PhD student guidance — Year 1 paper", points: "3" }
+          - { key: PAPER_GUIDANCE_Y2, label: "PhD student guidance — Year 2 paper", points: "3" }
+          - { key: GL_CHAIR, label: "GL doctoral committee — Chair", points: "25", note: "Not listed in the Nov 2026 revision; Guidelines value retained." }
+          - { key: GL_MEMBER, label: "GL doctoral committee — Member", points: "15", note: "Not listed in the Nov 2026 revision; Guidelines value retained." }
+          - { key: OUTSIDE_EXAMINER, label: "External examiner for outside thesis", points: "0" }
+          - { key: THESIS_IIM_IIT, label: "Thesis committee — IIM, IIT or equivalent", points: "0" }
+          - { key: THESIS_OTHER, label: "Thesis committee — other universities", points: "0" }
+      - { key: institution, label: "Programme / institution", type: text }
+      - { key: startDate, label: "Start date", type: date }
+
+  - key: PATENT
+    label: "Patent registration"
+    calc: lookup
+    lookupField: activity
+    reviewNote: "Admin to verify the patent status."
+    fields:
+      - { key: title, label: "Patent title", type: text, required: true }
+      - key: activity
+        label: "Activity"
+        type: select
+        required: true
+        options:
+          - { key: PATENT_REGISTRATION, label: "Patent registration", points: "15" }
+      - { key: number, label: "Application / registration number", type: text, required: true }
+      - { key: jurisdiction, label: "Jurisdiction", type: text }
+      - key: status
+        label: "Status"
+        type: select
+        options:
+          - { key: FILED, label: "Filed" }
+          - { key: PUBLISHED, label: "Published" }
+          - { key: GRANTED, label: "Granted / registered" }
+      - { key: date, label: "Filing / registration date", type: date }
+
+  - key: POPULAR_PRESS
+    label: "Popular press & trade publications"
+    help: "Check with BPR. Mainstream outlets: ET, FE, HT, TOI, Mint, Business Standard, Business India, Forbes, Fortune, The Indian Express, The Hindu, The Hindu Business Line, Business World."
+    calc: lookup
+    lookupField: outletType
+    fields:
+      - { key: title, label: "Article title", type: text, required: true }
+      - { key: outlet, label: "Publication / outlet", type: text, required: true }
+      - key: outletType
+        label: "Outlet type"
+        type: select
+        required: true
+        options:
+          - { key: MAINSTREAM, label: "Listed mainstream business / news publication", points: "0", signoff: PENDING, note: "Revision shows 0.3 currently and no proposed value; scored 0 until the owner confirms." }
+          - { key: TRADE, label: "Trade-specific journal", points: "0", signoff: PENDING, note: "No value in the revision; scored 0 until the owner confirms." }
+      - { key: date, label: "Publication date", type: date }
+      - { key: url, label: "URL", type: url }
+
+# ---------------------------------------------------------------------------
+# Service (Nov 2026 revision). Faculty can hold several roles at once; each
+# role is ticked separately. COUNT roles take a number.
+# ---------------------------------------------------------------------------
+service:
+  roles:
+    - { key: DIR_PGPM, group: "Programme Director", label: "Programme Director — PGPM", points: "40", quantity: FLAG }
+    - { key: DIR_PGDM, group: "Programme Director", label: "Programme Director — PGDM", points: "40", quantity: FLAG }
+    - { key: DIR_PGXPM, group: "Programme Director", label: "Programme Director — PGXPM", points: "20", quantity: FLAG }
+    - { key: DIR_FPM, group: "Programme Director", label: "Programme Director — FPM", points: "20", quantity: FLAG }
+    - { key: DIR_PGP_FLEX, group: "Programme Director", label: "Programme Director — PGP Flex", points: "20", quantity: FLAG, signoff: PENDING, note: "PGP Flex is not named in the Nov 2026 revision; scored like PGXPM (20) until confirmed." }
+    - { key: DIR_RESEARCH, group: "Director", label: "Director — Research", points: "10", quantity: FLAG }
+    - { key: DIR_ACCREDITATION, group: "Director", label: "Director — Accreditations", points: "20", quantity: FLAG }
+    - { key: CENTRE_EXCELLENCE, group: "Roles", label: "Chairperson — Centre of Excellence", points: "10", quantity: FLAG }
+    - { key: AREA_CHAIR, group: "Roles", label: "Area Chair", points: "10", quantity: FLAG }
+    - { key: DISCIPLINARY_COMMITTEE, group: "Roles", label: "Member — Disciplinary Action Committee", points: "10", quantity: FLAG }
+    - { key: RECRUITMENT_CHAIR, group: "Roles", label: "Faculty Recruitment Chair", points: "10", quantity: FLAG }
+    - { key: ADMISSIONS, group: "Roles", label: "Admissions", points: "20", quantity: FLAG }
+    - { key: CONF_CONDUCT_INTERNATIONAL, group: "Conducting conferences for GLIM Chennai", label: "Conducting an international academic conference for GLIM Chennai (per conference)", points: "40", quantity: COUNT, descriptionLabel: "Conference names" }
+    - { key: CONF_CONDUCT_NATIONAL, group: "Conducting conferences for GLIM Chennai", label: "Conducting a national academic conference for GLIM Chennai (per conference)", points: "30", quantity: COUNT, descriptionLabel: "Conference names" }
+    - { key: COMMITTEE_WORK, group: "Committees", label: "Other club / committee memberships (count)", points: "0", quantity: COUNT, descriptionLabel: "Committee names", zeroReason: "Recognised as institutional service; 0 points (Nov 2026 revision)." }
+    - { key: EMPIRICAL_GUIDANCE, group: "Guidance", label: "Empirical study guidance (groups, max 10)", points: "0.3", quantity: COUNT, maxQuantity: 10 }
+    - { key: INTERNSHIP_GUIDANCE, group: "Guidance", label: "Internship guidance (students)", points: "0.3", quantity: COUNT }
+  disclosures:
+    - { key: GL_STAFF_PHD_GUIDANCE, label: "Great Lakes staff PhD guidance (count)", type: integer }
+    - { key: INVITED_LECTURES, label: "Invited lectures", type: textarea }
+    - { key: PLACEMENTS, label: "Placements support", type: textarea }
+    - { key: ES_PGDM, label: "ES for PGDM", type: textarea }
+    - { key: GARTNER, label: "Gartner", type: textarea }
+    - { key: CONSULTING, label: "Consulting assignments (revenue shared 70:30 after expenses; no RTS points)", type: textarea }
+    - { key: OTHER_SERVICE, label: "Other service / additional roles", type: textarea }
+  disclosureNote: "These activities are recorded for information and are excluded from points (owner decision)."
