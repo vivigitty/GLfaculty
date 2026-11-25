@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { C, db } from "../db";
-import type { AcademicYear, PolicyRecord, Submission, SubmissionContent } from "../domain/schemas";
+import type { AcademicYear, Payment, PolicyRecord, Submission, SubmissionContent } from "../domain/schemas";
 import { audit, type Actor } from "../audit";
 import { getPolicy, parsePolicy } from "../policy/load";
 import type { Policy } from "../policy/schema";
@@ -9,10 +9,12 @@ import { checkParamValue, editableParameters, type PolicyParam } from "@/lib/pol
 import { UserError, nowIso, reasonRequired } from "./common";
 
 /**
- * Admin policy editing. A policy version is immutable once installed, so "editing"
- * always creates a NEW version from a base version plus parameter edits. The new
- * version can be assigned to an academic year (this year, if nothing has been
- * submitted yet, or the next year). Every change is audited with a value diff.
+ * Admin policy editing. A policy version becomes immutable once it is (or was) in use —
+ * any submission scored under it beyond a draft, or any payment record for a year that
+ * uses it. Editing a version in use always creates a NEW version from a base version plus
+ * parameter edits. A version that has never been used may instead be edited in place
+ * (`updatePolicyVersionInPlace`); the full previous policy is kept in the audit record.
+ * Every change is audited with a value diff.
  */
 
 export const policyEditInput = z.object({
@@ -27,6 +29,39 @@ export const policyEditInput = z.object({
   assignToYearId: z.string().max(40).nullable(),
 });
 export type PolicyEditInput = z.input<typeof policyEditInput>;
+
+export const policyInPlaceEditInput = z.object({
+  version: z.string().min(1),
+  expectedRev: z.number().int().positive(),
+  label: z.string().trim().min(3, "Enter a short description.").max(120),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date."),
+  edits: z.record(z.string().max(300), z.string().max(40)),
+  assignToYearId: z.string().max(40).nullable(),
+});
+export type PolicyInPlaceEditInput = z.input<typeof policyInPlaceEditInput>;
+
+export type PolicyUsage = { inUse: boolean; reasons: string[] };
+
+type Reader = Pick<Transaction, "list">;
+
+/**
+ * A version is "in use" once anything has been scored or paid under it: a submission past
+ * DRAFT (including rejected ones, which stay locked under their version), or a payment
+ * record for an academic year that uses it. Drafts do not count — they are re-scored live.
+ */
+export async function policyUsage(version: string, reader: Reader = db()): Promise<PolicyUsage> {
+  const subs = await reader.list<Submission>(C.submissions, (s) => s.policyVersion === version && s.status !== "DRAFT");
+  const yearIds = new Set((await reader.list<AcademicYear>(C.academicYears, (y) => y.policyVersion === version)).map((y) => y.id));
+  const pays = yearIds.size ? await reader.list<Payment>(C.payments, (p) => yearIds.has(p.academicYearId)) : [];
+  const reasons: string[] = [];
+  if (subs.length) {
+    const byStatus = new Map<string, number>();
+    for (const s of subs) byStatus.set(s.status, (byStatus.get(s.status) ?? 0) + 1);
+    reasons.push(`${subs.length} submission(s) scored under it (${[...byStatus].map(([k, n]) => `${n} ${k.toLowerCase().replace(/_/g, " ")}`).join(", ")})`);
+  }
+  if (pays.length) reasons.push(`${pays.length} payment record(s) for an academic year that uses it`);
+  return { inUse: reasons.length > 0, reasons };
+}
 
 export type ParamChange = { id: string; label: string; before: string; after: string };
 
@@ -166,6 +201,54 @@ export async function createPolicyVersion(input: PolicyEditInput, reason: string
     });
     if (v.assignToYearId) await assignPolicyToYear(tx, v.assignToYearId, v.newVersion, actor, why);
     return { version: v.newVersion, changes };
+  });
+}
+
+/**
+ * Edits a policy version in place. Only allowed while the version has never been used
+ * (see `policyUsage`); otherwise the Admin must save a new version. Drafts under the
+ * version are re-scored with the new values automatically. The previous policy body is
+ * preserved in the audit record so nothing is lost.
+ */
+export async function updatePolicyVersionInPlace(input: PolicyInPlaceEditInput, reason: string, actor: Actor): Promise<{ version: string; changes: ParamChange[] }> {
+  const v = policyInPlaceEditInput.parse(input);
+  const why = reasonRequired(reason, "editing a policy version");
+  const base = await getPolicy(v.version);
+  const { raw, changes, errors } = applyParameterEdits(base, v.edits);
+  if (errors.length) throw new UserError("Some values are not valid. Check the highlighted fields.", errors);
+  raw.label = v.label;
+  raw.effectiveFrom = v.effectiveFrom;
+  let policy: Policy;
+  try {
+    policy = parsePolicy(raw, `policy ${v.version}`);
+  } catch (e) {
+    throw new UserError((e as Error).message);
+  }
+  return db().transact(async (tx) => {
+    const rec = await tx.require<PolicyRecord>(C.policies, v.version);
+    if (rec._rev !== v.expectedRev) throw new UserError(`Policy ${v.version} was changed by someone else since you opened it. Reload and try again.`);
+    const usage = await policyUsage(v.version, tx);
+    if (usage.inUse) {
+      throw new UserError(`Policy ${v.version} is already in use (${usage.reasons.join("; ")}), so it cannot be edited in place. Save your changes as a new version instead.`);
+    }
+    const meta: Record<string, { before: string; after: string }> = {};
+    if (base.label !== v.label) meta.label = { before: base.label, after: v.label };
+    if (base.effectiveFrom !== v.effectiveFrom) meta.effectiveFrom = { before: base.effectiveFrom, after: v.effectiveFrom };
+    await tx.update<PolicyRecord>(C.policies, {
+      ...rec,
+      policy: JSON.parse(JSON.stringify(policy)) as Record<string, unknown>,
+      changeReason: why,
+    });
+    await audit(tx, actor, {
+      action: "POLICY_VERSION_EDITED",
+      entityType: "policy",
+      entityId: v.version,
+      before: { rev: rec._rev, changeReason: rec.changeReason, policy: rec.policy },
+      after: { ...meta, changes },
+      reason: why,
+    });
+    if (v.assignToYearId) await assignPolicyToYear(tx, v.assignToYearId, v.version, actor, why);
+    return { version: v.version, changes };
   });
 }
 

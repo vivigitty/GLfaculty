@@ -33,7 +33,7 @@ access codes to `data/DEMO_ACCESS_CODES.txt` (refused when `NODE_ENV=production`
 
 | To change… | Edit | Code change? |
 |---|---|---|
-| Any point value, rate, minimum, grant tier, contribution factor, sign-off flag | **Admin → Policy → Edit values as new version** (choose the academic year to use it for). Or a new `config/policy/<version>.yaml` + `npm run seed` | No |
+| Any point value, rate, minimum, grant tier, contribution factor, sign-off flag | **Admin → Policy → Edit this version** (while unused) or **Edit values as new version** (choose the academic year to use it for). Or a new `config/policy/<version>.yaml` + `npm run seed` | No |
 | Add/remove a research field, option or whole research section | `researchSections` in the policy YAML — the form, validation, PDF and review screens render from it | No (new *scoring rule types* need code) |
 | Add a service role or unscored disclosure | `service.roles` / `service.disclosures` in the policy YAML | No |
 | Teaching programme columns | `teaching.columns` | No |
@@ -41,8 +41,12 @@ access codes to `data/DEMO_ACCESS_CODES.txt` (refused when `NODE_ENV=production`
 | Email wording, retries, feature flags, notifications | `config/app.yaml` | No |
 | Submission windows, which policy a year uses | Admin → Academic years | No |
 
-Policy versions are immutable once installed, so approved submissions are never silently recalculated.
-Editing from the portal always creates a new version (audited with a value-by-value diff). A year's
+Policy versions are immutable once they are (or were) in use — any submission past draft (submitted,
+under review, approved or rejected) or any payment record for a year that uses the version — so
+approved submissions are never silently recalculated. A version that has never been used can be
+changed directly with **Edit this version** (drafts pick up the new values; the previous values are kept
+in the audit log as `POLICY_VERSION_EDITED`). Otherwise editing from the portal creates a new version
+(audited with a value-by-value diff). A year's
 policy can change only while nothing has been submitted for it; drafts follow the year. To prepare
 next year, open the current version, choose **Edit values as new version**, name it e.g. `2026-27.v1`
 and assign it to the new academic year.

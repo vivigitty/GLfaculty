@@ -135,6 +135,15 @@ export async function createPolicyVersionAction(input: unknown, reason: string):
   }, "Policy version created");
 }
 
+export async function updatePolicyVersionAction(input: unknown, reason: string): Promise<ActionResult<{ version: string; changes: number }>> {
+  return run(async () => {
+    const { actor } = await adminAction();
+    const r = await policies.updatePolicyVersionInPlace(policies.policyInPlaceEditInput.parse(input), text.parse(reason ?? ""), actor);
+    touch("/admin/policy", "/admin/academic-years");
+    return { version: r.version, changes: r.changes.length };
+  }, "Policy version updated");
+}
+
 // ---------------------------------------------------------------- Payments
 const paymentForm = z.object({ paidAmount: z.string(), correctedAmount: z.string(), fpmCount: z.string(), fpmRate: z.string(), paymentReference: z.string(), notes: z.string(), imported: z.boolean() });
 export async function savePaymentAction(facultyId: string, academicYearId: string, revision: number | null, input: unknown, reason: string): Promise<ActionResult> {
