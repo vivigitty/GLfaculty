@@ -18,6 +18,12 @@ npm run seed                      # installs policy + academic year
 npm run dev                       # http://localhost:3000
 ```
 
+Faculty access codes are emailed to the Faculty Master address when issued or regenerated (shown to the
+Admin once only if the email fails). Admin and Faculty use separate session cookies, so both can be
+signed in from one browser; sessions extend automatically while in use. Approve & lock requires every
+score line to be Verified (the review page supports select-all bulk verification and expandable
+"how these points arose" details per line).
+
 `npm run seed -- --demo` additionally creates three **fictional** demo faculty and writes their
 access codes to `data/DEMO_ACCESS_CODES.txt` (refused when `NODE_ENV=production`).
 
@@ -47,7 +53,12 @@ approved submissions are never silently recalculated. A version that has never b
 changed directly with **Edit this version** (drafts pick up the new values; the previous values are kept
 in the audit log as `POLICY_VERSION_EDITED`). Otherwise editing from the portal creates a new version
 (audited with a value-by-value diff). A year's
-policy can change only while nothing has been submitted for it; drafts follow the year. To prepare
+policy can change at any time: drafts follow the year immediately, and submitted/approved records are
+listed under **Admin → Policy changes** with an old-vs-new preview. Recomputing is explicit and audited:
+it re-scores the submitted content (new submission version), resets approved points (keeping line
+reviews whose points did not change), reopens approved records, and emails the faculty member a PDF with
+old vs new submitted points. Draft holders can be emailed their before/after draft points. A record
+scored under an older version cannot be approved until it is recomputed. To prepare
 next year, open the current version, choose **Edit values as new version**, name it e.g. `2026-27.v1`
 and assign it to the new academic year.
 Values marked `signoff: PENDING` are used but raise an Admin-review warning; the Admin can mark them

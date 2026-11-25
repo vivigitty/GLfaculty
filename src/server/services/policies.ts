@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { C, db } from "../db";
-import type { AcademicYear, Payment, PolicyRecord, Submission, SubmissionContent } from "../domain/schemas";
+import type { AcademicYear, Payment, PolicyRecord, Submission, SubmissionContent, SubmissionVersion } from "../domain/schemas";
 import { audit, type Actor } from "../audit";
 import { getPolicy, parsePolicy } from "../policy/load";
 import type { Policy } from "../policy/schema";
@@ -60,6 +60,11 @@ export async function policyUsage(version: string, reader: Reader = db()): Promi
     reasons.push(`${subs.length} submission(s) scored under it (${[...byStatus].map(([k, n]) => `${n} ${k.toLowerCase().replace(/_/g, " ")}`).join(", ")})`);
   }
   if (pays.length) reasons.push(`${pays.length} payment record(s) for an academic year that uses it`);
+  // Submissions recomputed under a newer version still have history (versions) scored under this one.
+  if (!subs.length) {
+    const hist = await reader.list<SubmissionVersion>(C.submissionVersions, (v) => v.score.policyVersion === version);
+    if (hist.length) reasons.push(`${hist.length} historical submission version(s) scored under it`);
+  }
   return { inUse: reasons.length > 0, reasons };
 }
 
@@ -124,27 +129,29 @@ export function applyParameterEdits(base: Policy, edits: Record<string, string>)
 }
 
 /**
- * Points a year at a policy version. Blocked while any submission is in progress or approved.
- * Rejected submissions do not block: they stay locked under the version they were scored with,
- * and the faculty member can start a fresh submission under the new version. Drafts follow the year.
+ * Points a year at a policy version. Allowed at any time (owner decision 2026-11-25).
+ * Drafts follow the year immediately. Submitted, under-review, clarification and approved records
+ * keep the version they were scored under until the Admin explicitly recomputes them
+ * (Admin → Policy changes; see services/recompute.ts) — approved records are never silently changed.
+ * Rejected records stay locked under their version.
  */
 export async function assignPolicyToYear(tx: Transaction, yearId: string, version: string, actor: Actor, reason: string): Promise<AcademicYear> {
   const ay = await tx.get<AcademicYear>(C.academicYears, yearId);
   if (!ay) throw new UserError("Academic year not found.", [{ path: "assignToYearId", message: "Choose an existing academic year." }]);
   if (ay.policyVersion === version) return ay;
   const all = await tx.list<Submission>(C.submissions, (s) => s.academicYearId === yearId);
-  const blocking = all.filter((s) => s.status !== "DRAFT" && s.status !== "REJECTED");
-  if (blocking.length > 0) {
-    throw new UserError(
-      `${ay.label} has ${blocking.length} submission(s) that are submitted, under review, awaiting clarification or approved under ${ay.policyVersion}, so its policy cannot change. ` +
-        "Finish or reject them first, or assign the new version to another year.",
-      [{ path: "assignToYearId", message: "Active submissions exist for this year." }],
-    );
-  }
+  const awaitingRecompute = all.filter((s) => s.status !== "DRAFT" && s.status !== "REJECTED" && s.policyVersion !== version);
   const subs = all.filter((s) => s.status === "DRAFT");
   const now = nowIso();
   const next = await tx.update<AcademicYear>(C.academicYears, { ...ay, policyVersion: version, updatedAt: now });
-  await audit(tx, actor, { action: "ACADEMIC_YEAR_POLICY_ASSIGNED", entityType: "academicYear", entityId: yearId, before: { policyVersion: ay.policyVersion }, after: { policyVersion: version }, reason });
+  await audit(tx, actor, {
+    action: "ACADEMIC_YEAR_POLICY_ASSIGNED",
+    entityType: "academicYear",
+    entityId: yearId,
+    before: { policyVersion: ay.policyVersion },
+    after: { policyVersion: version, draftsMoved: subs.length, submissionsAwaitingRecompute: awaitingRecompute.map((s) => s.id) },
+    reason,
+  });
   // Unsubmitted drafts move to the year's policy. Values the new policy no longer has are removed
   // from the draft (and preserved in the audit record); teaching hours are noted on the row.
   const policy = parsePolicy((await tx.require<PolicyRecord>(C.policies, version)).policy, `policy ${version}`);

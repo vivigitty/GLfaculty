@@ -16,6 +16,7 @@ notifications:
 email:
   maxAutomaticAttempts: 3            # bounded retries for transient provider failures
   # Placeholders: {{name}} {{year}} {{status}} {{reference}} {{link}} {{message}}
+  # ACCESS_CODE also has {{code}}; POLICY_* also have {{policy}} {{oldPoints}} {{newPoints}}.
   # Subjects deliberately avoid submission details.
   templates:
     INITIAL_EXPORT:
@@ -67,3 +68,50 @@ email:
       body: |
         A faculty member has submitted their RTS record for {{year}} (reference {{reference}}).
         Review it in the Admin portal: {{link}}
+    ACCESS_CODE:
+      subject: "Your RTS portal access code"
+      body: |
+        Dear {{name}},
+
+        A personal access code has been issued for you on the RTS Faculty Portal.
+
+        Access code: {{code}}
+
+        Sign in at {{link}} by selecting your name and entering this code.
+        Keep it private — it works only for you. Any earlier code no longer works.
+        If you did not expect this email, please contact the RTS Office.
+
+        RTS Office
+    POLICY_RECOMPUTED:
+      subject: "RTS points recalculated — {{year}}"
+      body: |
+        Dear {{name}},
+
+        The RTS points policy for {{year}} has been updated to {{policy}}, and your submission
+        (reference {{reference}}) has been recalculated under it.
+
+        Previous submitted points: {{oldPoints}}
+        New submitted points:      {{newPoints}}
+
+        The attached PDF shows the recalculated points. The Admin will now review and approve
+        the recalculated record; you will receive a final statement after approval.
+        {{message}}
+
+        Details: {{link}}
+
+        RTS Office
+    POLICY_DRAFT_NOTICE:
+      subject: "RTS points policy updated — {{year}}"
+      body: |
+        Dear {{name}},
+
+        The RTS points policy for {{year}} has been updated to {{policy}}. Your draft submission
+        (not yet submitted) now uses the new values.
+
+        Draft points under the previous policy: {{oldPoints}}
+        Draft points under the new policy:      {{newPoints}}
+
+        Please sign in, check your draft and submit it: {{link}}
+        {{message}}
+
+        RTS Office

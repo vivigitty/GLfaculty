@@ -21,7 +21,7 @@ export function Shell({ who, role, links, children }: { who: string; role: strin
             <span>
               {who} <span style={{ opacity: 0.7 }}>· {role}</span>
             </span>
-            <form action={logoutAction}>
+            <form action={logoutAction.bind(null, role === "Admin" ? "ADMIN" : "FACULTY")}>
               <button type="submit">Sign out</button>
             </form>
           </div>

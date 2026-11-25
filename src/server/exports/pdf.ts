@@ -9,7 +9,7 @@ import { designationLabel, isHidden, optionLabel, researchStatusLabel } from "@/
 export type PdfModel = {
   institution: string;
   templateVersion: string;
-  kind: "INITIAL" | "FINAL" | "REGENERATED";
+  kind: "INITIAL" | "FINAL" | "REGENERATED" | "RECOMPUTED";
   generatedAt: string;
   submission: Submission;
   ay: AcademicYear;
@@ -114,7 +114,7 @@ export function renderSubmissionPdf(m: PdfModel): Promise<Buffer> {
   doc.font("Helvetica-Bold").fontSize(15).fillColor(INK).text("RTS — Research, Teaching & Service Points", M, M, { width: W });
   doc.font("Helvetica").fontSize(9).fillColor(MUTED).text(`${m.institution} · ${m.ay.label} (${fmtDate(m.ay.startDate)} – ${fmtDate(m.ay.endDate)})`);
   doc.text(
-    `${m.kind === "FINAL" ? "Final (post-review) statement" : m.kind === "INITIAL" ? "Submission statement" : "Regenerated statement"} · Generated ${fmtDateTime(m.generatedAt)} · Template ${m.templateVersion} · Policy ${s.policyVersion}`,
+    `${m.kind === "FINAL" ? "Final (post-review) statement" : m.kind === "INITIAL" ? "Submission statement" : m.kind === "RECOMPUTED" ? "Recomputed statement (policy change)" : "Regenerated statement"} · Generated ${fmtDateTime(m.generatedAt)} · Template ${m.templateVersion} · Policy ${s.policyVersion}`,
   );
   doc.moveDown(0.5);
 

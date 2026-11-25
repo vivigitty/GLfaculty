@@ -32,7 +32,7 @@ Read `REQUIREMENTS.md`, `SCORING_MAPPING.md`, and `DESIGN.md` before coding. The
 9. **Grant sharing:** split equally among participating faculty, then apply tier to each faculty member's share. v2 tiers: ₹50,000–₹2,00,000 → 5; > ₹2,00,000 → 10.
 10. **Eligibility:** standard 200; Junior Faculty 30; prorating = days in service ÷ days in the year for new and exiting faculty.
 11. **Payment formula:** implement the progressive formula in `SCORING_MAPPING.md`; ₹7,000 and every designation rate are per-academic-year parameters editable in the Admin portal, never UI constants. Final amount rounds up to the next rupee (v2).
-12. **Authentication:** Admin uses a configured Admin login. Each Faculty member is selected from the Admin-maintained Faculty Master List and authenticated with a unique system-generated individual secret/access code. Show the raw secret to Admin once for individual distribution; store only its hash. Never use one shared Faculty secret. Rate-limit attempts, support revocation/regeneration, and bind sessions to the validated Faculty Master record. No department SSO is required for the first release.
+12. **Authentication:** Admin uses a configured Admin login. Each Faculty member is selected from the Admin-maintained Faculty Master List and authenticated with a unique system-generated individual secret/access code. Email the raw secret to the faculty member's Faculty Master address on issue/regeneration (owner decision 2026-11-25); show it to Admin once only if that email cannot be sent; store only its hash. Never use one shared Faculty secret. Rate-limit attempts, support revocation/regeneration, and bind sessions to the validated Faculty Master record. No department SSO is required for the first release.
 13. **Email:** send to the email address in the Admin-maintained Faculty Master List. Faculty cannot directly edit it. Faculty can request a correction; Admin must approve it before the master record changes, and direct confirmation from the faculty member is sufficient verification. Record provider responses and support Admin resend. Faculty-specific exports are PDF: email one immediately after submission and a refreshed one after final approval.
 14. **SQLite:** never deploy a local SQLite file on ephemeral/serverless storage as durable production data. Use persistent disk or hosted DB.
 15. **No destructive edits to historical records.** Preserve submission versions, policy versions, payment history, and audit log.
@@ -180,6 +180,7 @@ At minimum:
 - Do not store raw faculty access secrets. Show a newly generated secret to Admin only once at issuance/regeneration, then require Admin to distribute it individually.
 - Do not mark an email delivered merely because the provider accepted the send request.
 - Do not allow Faculty to view consolidated Admin data or another faculty member's records.
-- Do not silently recalculate approved records after policy changes.
+- Do not silently recalculate approved records after policy changes. A year's policy may change at any time (owner decision 2026-11-25); non-draft records are recomputed only by explicit, audited Admin action (Admin → Policy changes), which versions the record, reopens approved ones and emails the faculty member old vs new points.
+- Do not allow Approve & lock until every score line is Verified (bulk verification is allowed).
 - Do not use SQLite local disk on Vercel as production storage.
 - Do not migrate to PostgreSQL by merely changing `provider` and reusing incompatible migrations.
