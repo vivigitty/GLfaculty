@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { facultyLoginOptions } from "@/server/services/faculty";
-import { getAuth } from "@/server/auth/session";
+import { getAuthFor } from "@/server/auth/session";
 import { LoginForms } from "./LoginForms";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ role?: string }> }) {
-  const auth = await getAuth();
-  if (auth) redirect(auth.session.role === "ADMIN" ? "/admin" : "/faculty");
   const { role } = await searchParams;
   const isAdmin = role === "admin";
+  // Only skip the form when already signed in for the role being chosen; the other role can still sign in.
+  if (await getAuthFor(isAdmin ? "ADMIN" : "FACULTY")) redirect(isAdmin ? "/admin" : "/faculty");
   const options = isAdmin ? [] : await facultyLoginOptions();
   return (
     <>

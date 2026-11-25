@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { C, db } from "../db";
-import type { Faculty } from "../domain/schemas";
+import type { EmailAttempt, Faculty } from "../domain/schemas";
 import { newId } from "../store/fileStore";
 import { audit, type Actor } from "../audit";
 import { generateAccessCode, hashSecret } from "../auth/secrets";
 import { currentPolicy } from "./config";
+import { sendEmail } from "./email";
+import { env } from "../env";
 import { UserError, normalizeEmail, nowIso, reasonRequired } from "./common";
 
 export const facultyInput = z.object({
@@ -103,8 +105,13 @@ export async function updateFaculty(id: string, rev: number, input: FacultyInput
   });
 }
 
-/** Issues or regenerates the faculty member's access code. Returns the raw code ONCE. */
-export async function issueAccessCode(id: string, actor: Actor): Promise<{ code: string; faculty: Faculty }> {
+/**
+ * Issues or regenerates the faculty member's access code and emails it to the Faculty Master
+ * address (owner decision 2026-11-25: codes are emailed, not handed out manually). Only the hash
+ * is stored; the email attempt record keeps the subject, never the body. The raw code is returned
+ * to the caller so the Admin can be shown it once *only if* the email could not be sent.
+ */
+export async function issueAccessCode(id: string, actor: Actor): Promise<{ code: string; faculty: Faculty; email: EmailAttempt | null }> {
   const code = generateAccessCode();
   const hash = await hashSecret(code.replace(/-/g, ""));
   const faculty = await db().transact(async (tx) => {
@@ -125,7 +132,21 @@ export async function issueAccessCode(id: string, actor: Actor): Promise<{ code:
     });
     return next;
   });
-  return { code, faculty };
+  let email: EmailAttempt | null = null;
+  try {
+    email = await sendEmail({
+      purpose: "ACCESS_CODE",
+      to: faculty.email,
+      vars: { name: faculty.displayName, code, link: `${env().APP_BASE_URL}/login`, year: "", reference: "", status: "", message: "" },
+      submissionId: null,
+      facultyId: faculty.id,
+      idempotencyBase: `access:${faculty.id}:g${faculty.access.generation}`,
+      actor,
+    });
+  } catch (e) {
+    console.error("[access code] email failed", e);
+  }
+  return { code, faculty, email };
 }
 
 export async function revokeAccess(id: string, reason: string, actor: Actor): Promise<Faculty> {

@@ -158,7 +158,17 @@ describe("submission lifecycle", () => {
     // Stale revision is rejected.
     await expect(subs.adjustApprovedCategory(sub.id, adj._rev, "T", "90", "x-stale", ADMIN)).rejects.toThrow(/changed by someone else/);
 
-    const approved = await subs.approve(lr.id, lr._rev, "Reviewed", ADMIN);
+    // Approval requires every score line to be verified; bulk verification covers the rest.
+    await expect(subs.approve(lr.id, lr._rev, "Reviewed", ADMIN)).rejects.toThrow(/not verified/);
+    expect(subs.unverifiedLines(lr).map((l) => l.lineId)).not.toContain("S:EMPIRICAL_GUIDANCE");
+    await expect(subs.bulkSetLineStatus(sub.id, lr._rev, ["nope"], "VERIFIED", ADMIN)).rejects.toThrow(/no longer exist/);
+    const bulk = await subs.bulkSetLineStatus(sub.id, lr._rev, lr.submittedScore!.lines.map((l) => l.lineId), "VERIFIED", ADMIN);
+    expect(subs.unverifiedLines(bulk)).toHaveLength(0);
+    // Bulk verification keeps the existing line override and note.
+    expect(bulk.lineReviews["S:EMPIRICAL_GUIDANCE"]).toMatchObject({ approvedPoints: "0", note: "No evidence of groups" });
+    expect(bulk.approvedPoints).toEqual({ R: "30", T: "100", S: "10" });
+
+    const approved = await subs.approve(bulk.id, bulk._rev, "Reviewed", ADMIN);
     expect(approved.status).toBe("APPROVED");
     expect(approved.locked).toBe(true);
     await expect(subs.adjustApprovedCategory(sub.id, approved._rev, "R", "1", "after lock", ADMIN)).rejects.toThrow(/Not allowed/);
@@ -168,7 +178,7 @@ describe("submission lifecycle", () => {
     // Audit trail covers the consequential changes.
     const events = await db().list<{ id: string; _rev: number; action: string; entityId: string; reason: string }>(C.audit, (e) => e.entityId === sub.id);
     const actions = events.map((e) => e.action);
-    expect(actions).toEqual(expect.arrayContaining(["SUBMISSION_SUBMITTED", "APPROVED_CATEGORY_ADJUSTED", "LINE_APPROVED_POINTS_CHANGED", "SUBMISSION_APPROVED"]));
+    expect(actions).toEqual(expect.arrayContaining(["SUBMISSION_SUBMITTED", "APPROVED_CATEGORY_ADJUSTED", "LINE_APPROVED_POINTS_CHANGED", "LINE_REVIEWS_BULK_UPDATED", "SUBMISSION_APPROVED"]));
     expect(events.find((e) => e.action === "APPROVED_CATEGORY_ADJUSTED")?.reason).toBe("Case repository not verified");
     // Versions retained.
     expect((await subs.versionsOf(sub.id)).map((v) => v.kind)).toEqual(["SUBMITTED", "APPROVED_SNAPSHOT"]);
@@ -356,11 +366,8 @@ describe("Admin policy editor", () => {
     const ev = await db().list<AuditEvent>(C.audit, (a) => a.action === "POLICY_VERSION_CREATED" && a.entityId === "2026-27.v1");
     expect((ev[0]?.after as { changes?: unknown[] } | undefined)?.changes).toHaveLength(2);
 
-    // Names are never reused, and a year with submitted records cannot switch policy.
+    // Names are never reused.
     await expect(policies.createPolicyVersion(input, "again", ADMIN)).rejects.toThrow(/already exists/);
-    await expect(policies.createPolicyVersion({ ...input, newVersion: "2025-26.v3", assignToYearId: "AY2025-26" }, "try current year", ADMIN)).rejects.toThrow(/policy cannot change/);
-    // The failed assignment rolled back the whole transaction, including the new version.
-    expect(await db().get(C.policies, "2025-26.v3")).toBeNull();
   });
 
   it("edits a never-used version in place, and refuses once it is in use", async () => {
@@ -412,10 +419,12 @@ describe("Admin policy editor", () => {
   });
 });
 
-describe("mid-year policy change after rejections", () => {
-  it("allows the switch once only drafts and rejected records remain; rejected faculty restart under the new version", async () => {
-    const { db, C, subs, pay } = await mods();
+describe("mid-year policy change", () => {
+  it("allows switching at any time; submitted records wait for an explicit recompute, drafts follow, rejected stay locked", async () => {
+    const { db, C, subs, pay, email, exp } = await mods();
     const years = await import("@/server/services/academicYears");
+    const recompute = await import("@/server/services/recompute");
+    const policies = await import("@/server/services/policies");
     const Y = "AY2027-28";
     await years.saveYear({ id: Y, label: "AY 2027-28", startDate: "2027-04-01", endDate: "2028-03-31", submissionOpenAt: "2020-01-01", submissionCloseAt: "2099-12-31", status: "OPEN", policyVersion: "2025-26.v1", historicalOnly: false }, null, "", ADMIN);
     const content = { teaching: [], research: [], service: { roles: { AREA_CHAIR: { quantity: "1", description: "" } }, disclosures: {} }, facultyNotes: "" };
@@ -427,46 +436,141 @@ describe("mid-year policy change after rejections", () => {
     };
     const a = await submitAs("midyear.a@example.edu");
     const b = await submitAs("midyear.b@example.edu");
+    expect(a.sub.submittedPoints?.S).toBe("7"); // v1 Area Chair
     const { faculty: c } = await newFaculty("midyear.c@example.edu");
-    const cDraft = await subs.startSubmission(c, Y, { role: "FACULTY", ref: c.id });
-    const moveToV2 = async () => {
-      const ay = await db().require<AcademicYear>(C.academicYears, Y);
-      const { _rev, createdAt, updatedAt, ...input } = ay;
-      void createdAt;
-      void updatedAt;
-      return years.saveYear({ ...input, policyVersion: "2025-26.v2" }, _rev, "Owner revision adopted mid-year", ADMIN);
-    };
-
-    // Submitted records block the change.
-    await expect(moveToV2()).rejects.toThrow(/policy cannot change/);
-    // One rejected, one still submitted: still blocked.
-    await subs.reject(a.sub.id, a.sub._rev, "Superseded by revised policy", ADMIN);
-    await expect(moveToV2()).rejects.toThrow(/1 submission/);
-    // Both rejected: allowed.
+    const cActor = { role: "FACULTY" as const, ref: c.id };
+    const cDraft = await subs.startSubmission(c, Y, cActor);
+    await subs.saveDraft(c, cDraft.id, cDraft._rev, content, cActor);
+    // b is rejected before the change and must stay as it was.
     await subs.reject(b.sub.id, b.sub._rev, "Superseded by revised policy", ADMIN);
-    expect((await moveToV2()).policyVersion).toBe("2025-26.v2");
 
-    // Rejected records stay locked under v1; the draft follows the year.
-    const aOld = await db().require<Submission>(C.submissions, a.sub.id);
-    expect([aOld.status, aOld.policyVersion, aOld.locked]).toEqual(["REJECTED", "2025-26.v1", true]);
+    const ay0 = await db().require<AcademicYear>(C.academicYears, Y);
+    const { _rev, createdAt, updatedAt, ...yearInput } = ay0;
+    void createdAt;
+    void updatedAt;
+    // Submitted records no longer block the switch.
+    expect((await years.saveYear({ ...yearInput, policyVersion: "2025-26.v2" }, _rev, "Owner revision adopted mid-year", ADMIN)).policyVersion).toBe("2025-26.v2");
+
+    // Submitted record keeps v1 until recomputed; the draft follows; the rejected record is untouched.
+    expect((await db().require<Submission>(C.submissions, a.sub.id)).policyVersion).toBe("2025-26.v1");
     expect((await db().require<Submission>(C.submissions, cDraft.id)).policyVersion).toBe("2025-26.v2");
-
-    // The rejected faculty member starts a fresh submission under v2 (and gets the same one again).
-    const fresh = await subs.startSubmission(a.faculty, Y, a.actor);
-    expect(fresh.id).not.toBe(a.sub.id);
-    expect([fresh.status, fresh.policyVersion]).toEqual(["DRAFT", "2025-26.v2"]);
-    expect((await subs.startSubmission(a.faculty, Y, a.actor)).id).toBe(fresh.id);
-    expect(subs.currentSubmission(await subs.facultySubmissions(a.faculty.id))?.id).toBe(fresh.id);
-    const restarted = await db().list<AuditEvent>(C.audit, (e) => e.action === "SUBMISSION_RESTARTED_AFTER_REJECTION" && e.entityId === fresh.id);
-    expect(restarted).toHaveLength(1);
-
-    // Rejected v1 records cannot be reopened into a v2 year, nor alongside a fresh record.
-    await expect(subs.reopen(a.sub.id, aOld._rev, "try reopen", ADMIN)).rejects.toThrow(/already started a new submission/);
     const bOld = await db().require<Submission>(C.submissions, b.sub.id);
-    await expect(subs.reopen(b.sub.id, bOld._rev, "try reopen", ADMIN)).rejects.toThrow(/now uses 2025-26.v2/);
+    expect([bOld.status, bOld.policyVersion, bOld.locked]).toEqual(["REJECTED", "2025-26.v1", true]);
+
+    // The change is detected, with a preview of old vs new points.
+    const summary = (await recompute.policyChangeSummaries()).find((x) => x.year.id === Y)!;
+    expect(summary.candidates.map((x) => [x.submission.id, x.oldPoints.S, x.newPoints.S])).toEqual([[a.sub.id, "7", "10"]]);
+    expect(summary.drafts.map((d) => [d.submission.id, d.oldPoints?.S, d.newPoints.S, d.notified])).toEqual([[cDraft.id, "7", "10", false]]);
+
+    // A stale record cannot be approved, even when every line is verified.
+    const aVer = await subs.bulkSetLineStatus(a.sub.id, a.sub._rev, a.sub.submittedScore!.lines.map((l) => l.lineId), "VERIFIED", ADMIN);
+    await expect(subs.approve(a.sub.id, aVer._rev, "", ADMIN)).rejects.toThrow(/Recompute/);
+
+    // Recompute (reason required) + notify the draft holder.
+    await expect(recompute.runPolicyChange({ submissionIds: [a.sub.id], draftIds: [], reason: "" }, ADMIN)).rejects.toThrow(/reason/i);
+    const run = await recompute.runPolicyChange({ submissionIds: [a.sub.id, b.sub.id], draftIds: [cDraft.id], reason: "Nov 2026 revision" }, ADMIN);
+    expect(run.recomputed).toBe(1);
+    expect(run.notified).toBe(1);
+    expect(run.failures).toHaveLength(1); // the rejected record is refused
+    const aNew = await db().require<Submission>(C.submissions, a.sub.id);
+    expect([aNew.policyVersion, aNew.submittedPoints?.S, aNew.approvedPoints?.S, aNew.currentVersion, aNew.locked]).toEqual(["2025-26.v2", "10", "10", 2, false]);
+    // The line's points changed, so its earlier verification is cleared.
+    expect(subs.unverifiedLines(aNew).map((l) => l.lineId)).toEqual(["S:AREA_CHAIR"]);
+    expect((await subs.versionsOf(a.sub.id)).map((v) => [v.kind, v.score.policyVersion])).toEqual([["SUBMITTED", "2025-26.v1"], ["POLICY_RECOMPUTED", "2025-26.v2"]]);
+    expect((await exp.exportsFor(a.sub.id)).map((e) => e.kind)).toContain("RECOMPUTED");
+    const mails = await email.attemptsFor(a.sub.id);
+    expect(mails.find((m) => m.purpose === "POLICY_RECOMPUTED")?.status).toBe("SEND_ACCEPTED");
+    expect((await email.attemptsFor(cDraft.id)).map((m) => m.purpose)).toEqual(["POLICY_DRAFT_NOTICE"]);
+    const ev = await db().list<AuditEvent>(C.audit, (e) => e.action === "SUBMISSION_RECOMPUTED" && e.entityId === a.sub.id);
+    expect(ev[0]?.reason).toBe("Nov 2026 revision");
+    // Nothing pending any more for this year.
+    expect((await recompute.policyChangeSummaries()).find((x) => x.year.id === Y)).toBeUndefined();
+    // v1 is still "in use" (history + the rejected record) and stays immutable.
+    expect((await policies.policyUsage("2025-26.v1")).inUse).toBe(true);
+
+    // Admin verifies and approves the recomputed record.
+    const v2 = await subs.bulkSetLineStatus(a.sub.id, aNew._rev, ["S:AREA_CHAIR"], "VERIFIED", ADMIN);
+    expect((await subs.approve(a.sub.id, v2._rev, "Recomputed", ADMIN)).status).toBe("APPROVED");
+
+    // The rejected faculty member starts a fresh submission under v2; the old one cannot be reopened.
+    const fresh = await subs.startSubmission(b.faculty, Y, b.actor);
+    expect(fresh.id).not.toBe(b.sub.id);
+    expect([fresh.status, fresh.policyVersion]).toEqual(["DRAFT", "2025-26.v2"]);
+    expect((await subs.startSubmission(b.faculty, Y, b.actor)).id).toBe(fresh.id);
+    expect(subs.currentSubmission(await subs.facultySubmissions(b.faculty.id))?.id).toBe(fresh.id);
+    expect(await db().list<AuditEvent>(C.audit, (e) => e.action === "SUBMISSION_RESTARTED_AFTER_REJECTION" && e.entityId === fresh.id)).toHaveLength(1);
+    await expect(subs.reopen(b.sub.id, bOld._rev, "try reopen", ADMIN)).rejects.toThrow(/already started a new submission/);
 
     // Consolidated sheet ignores rejected records' points.
     const row = (await pay.consolidated(Y, "STANDARD")).rows.find((r) => r.faculty.id === b.faculty.id);
     expect(row?.points).toBeNull();
+  });
+
+  it("recomputing an approved record reopens it; the approved snapshot stays in history", async () => {
+    const { db, C, subs } = await mods();
+    const years = await import("@/server/services/academicYears");
+    const recompute = await import("@/server/services/recompute");
+    const Y = "AY2028-29";
+    await years.saveYear({ id: Y, label: "AY 2028-29", startDate: "2028-04-01", endDate: "2029-03-31", submissionOpenAt: "2020-01-01", submissionCloseAt: "2099-12-31", status: "OPEN", policyVersion: "2025-26.v1", historicalOnly: false }, null, "", ADMIN);
+    const { faculty } = await newFaculty("recompute.approved@example.edu");
+    const actor = { role: "FACULTY" as const, ref: faculty.id };
+    const d = await subs.startSubmission(faculty, Y, actor);
+    const content = { teaching: [], research: [], service: { roles: { AREA_CHAIR: { quantity: "1", description: "" }, ADMISSIONS: { quantity: "1", description: "" } }, disclosures: {} }, facultyNotes: "" };
+    const s = await subs.submit(faculty, d.id, d._rev, content, { declarationAccepted: true }, actor);
+    const v = await subs.bulkSetLineStatus(s.id, s._rev, s.submittedScore!.lines.map((l) => l.lineId), "VERIFIED", ADMIN);
+    const ap = await subs.approve(s.id, v._rev, "", ADMIN);
+    expect(ap.status).toBe("APPROVED");
+
+    const ay = await db().require<AcademicYear>(C.academicYears, Y);
+    const { _rev, createdAt, updatedAt, ...yearInput } = ay;
+    void createdAt;
+    void updatedAt;
+    await years.saveYear({ ...yearInput, policyVersion: "2025-26.v2" }, _rev, "revision", ADMIN);
+    // The approved record is untouched until recomputed.
+    expect((await db().require<Submission>(C.submissions, s.id)).status).toBe("APPROVED");
+
+    const r = await recompute.recomputeSubmission(s.id, "Apply revision", ADMIN);
+    expect([r.status, r.locked, r.approvedAt]).toEqual(["UNDER_REVIEW", false, null]);
+    // Admissions is 20 in both versions: its verification is kept; Area Chair changed: cleared.
+    expect(r.lineReviews["S:ADMISSIONS"]?.status).toBe("VERIFIED");
+    expect(r.lineReviews["S:AREA_CHAIR"]).toBeUndefined();
+    expect((await subs.versionsOf(s.id)).map((x) => x.kind)).toEqual(["SUBMITTED", "APPROVED_SNAPSHOT", "POLICY_RECOMPUTED"]);
+    await expect(recompute.recomputeSubmission(s.id, "again", ADMIN)).rejects.toThrow(/already uses/);
+  });
+});
+
+describe("access codes by email", () => {
+  it("emails a new or regenerated code to the master address without storing it", async () => {
+    const { db, C, fac } = await mods();
+    const { faculty, code } = await newFaculty("code.mail@example.edu");
+    const attempts = await db().list<import("@/server/domain/schemas").EmailAttempt>(C.emailAttempts, (a) => a.facultyId === faculty.id && a.purpose === "ACCESS_CODE");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ recipientEmail: "code.mail@example.edu", status: "SEND_ACCEPTED", submissionId: null });
+    expect(JSON.stringify(attempts[0])).not.toContain(code);
+    // The message itself (outbox in development) carries the code.
+    const outbox = path.join(dir, "outbox");
+    const files = await fs.readdir(outbox);
+    const bodies = await Promise.all(files.map((f) => fs.readFile(path.join(outbox, f), "utf8")));
+    expect(bodies.some((b) => b.includes(code))).toBe(true);
+
+    // Regeneration sends a fresh email (new generation, new idempotency key).
+    const regen = await fac.issueAccessCode(faculty.id, ADMIN);
+    expect(regen.email?.status).toBe("SEND_ACCEPTED");
+    expect(await db().list<import("@/server/domain/schemas").EmailAttempt>(C.emailAttempts, (a) => a.facultyId === faculty.id && a.purpose === "ACCESS_CODE")).toHaveLength(2);
+  });
+});
+
+describe("sessions", () => {
+  it("extends a session once less than half of its lifetime remains", async () => {
+    const { db, C, auth } = await mods();
+    const res = await auth.loginAdmin("admin", "correct horse battery", "9.9.9.9");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(await auth.extendSessionIfDue(res.session)).toBeNull();
+    const ttl = 120 * 60_000;
+    const late = Date.parse(res.session.expiresAt) - ttl / 4;
+    const renewed = await auth.extendSessionIfDue(res.session, late);
+    expect(Date.parse(renewed!.expiresAt)).toBe(late + ttl);
+    expect((await db().require<{ id: string; _rev: number; expiresAt: string }>(C.sessions, res.session.id)).expiresAt).toBe(renewed!.expiresAt);
   });
 });

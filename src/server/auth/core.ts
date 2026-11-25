@@ -107,6 +107,20 @@ export async function resolveSession(token: string | undefined): Promise<{ sessi
   return { session, faculty };
 }
 
+/**
+ * Sliding expiry: once less than half of the TTL remains, push expiry out by a full TTL.
+ * Returns the renewed session, or null when no renewal was needed.
+ */
+export async function extendSessionIfDue(session: Session, now = Date.now()): Promise<Session | null> {
+  const ttl = env().SESSION_TTL_MINUTES * 60_000;
+  if (Date.parse(session.expiresAt) - now > ttl / 2) return null;
+  return db().transact(async (tx) => {
+    const cur = await tx.get<Session>(C.sessions, session.id);
+    if (!cur || cur.revoked) return null;
+    return tx.update<Session>(C.sessions, { ...cur, expiresAt: new Date(now + ttl).toISOString() });
+  });
+}
+
 export async function logout(token: string | undefined): Promise<void> {
   const id = sessionIdFromToken(token);
   if (!id) return;

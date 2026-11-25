@@ -32,7 +32,7 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
   const [editing, setEditing] = useState<Row | null>(null);
   const [form, setForm] = useState<{ displayName: string; email: string; designationKey: string; facultyCategory: "STANDARD" | "JUNIOR"; dateOfJoining: string; researchStatus: string; employeeId: string; dateOfExit: string; active: boolean }>(blank);
   const [reason, setReason] = useState("");
-  const [code, setCode] = useState<{ code: string; name: string } | null>(null);
+  const [code, setCode] = useState<{ name: string; email: string; emailed: boolean; emailError: string | null; code: string | null } | null>(null);
   const [filter, setFilter] = useState("");
 
   const openNew = () => {
@@ -50,7 +50,10 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
     formRef.current?.showModal();
   };
   const issue = (r: Row) => {
-    if (r.accessStatus === "ACTIVE" && !window.confirm(`Regenerate the access code for ${r.displayName}? The current code stops working and any open session ends.`)) return;
+    const msg = r.accessStatus === "ACTIVE"
+      ? `Regenerate the access code for ${r.displayName}? The current code stops working, any open session ends, and the new code is emailed to ${r.email}.`
+      : `Issue an access code for ${r.displayName}? It will be emailed to ${r.email}.`;
+    if (!window.confirm(msg)) return;
     a.exec(() => issueCodeAction(r.id), (d) => {
       setCode(d);
       codeRef.current?.showModal();
@@ -190,12 +193,25 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
 
       <dialog ref={codeRef} className="modal" aria-labelledby="code-title" onClose={() => setCode(null)}>
         <div className="modal-head"><h2 id="code-title">Access code for {code?.name}</h2></div>
-        <div className="modal-body stack">
-          <div className="alert alert-warn">This code is shown <strong>only once</strong>. Copy it now and give it to the faculty member individually (not by group email). Only a hash is stored.</div>
-          <div className="secret" aria-label="Access code">{code?.code}</div>
-          <button className="btn" onClick={() => code && navigator.clipboard?.writeText(code.code)}>Copy to clipboard</button>
-        </div>
-        <div className="modal-foot"><button className="btn btn-primary" onClick={() => codeRef.current?.close()}>I have recorded the code</button></div>
+        {code?.emailed ? (
+          <>
+            <div className="modal-body stack">
+              <div className="alert alert-ok" role="status">The new access code was emailed to <strong>{code.email}</strong>. It is not shown here; only a hash is stored.</div>
+              <p className="small muted">Delivery status appears under Email issues if the message fails or bounces. If the faculty member does not receive it, regenerate the code (the email address can be corrected in the faculty record first).</p>
+            </div>
+            <div className="modal-foot"><button className="btn btn-primary" onClick={() => codeRef.current?.close()}>Done</button></div>
+          </>
+        ) : (
+          <>
+            <div className="modal-body stack">
+              <div className="alert alert-bad" role="alert">The email to {code?.email} could not be sent{code?.emailError ? ` (${code.emailError})` : ""}. The code is active.</div>
+              <div className="alert alert-warn">As a fallback the code is shown <strong>only once</strong>. Give it to the faculty member individually (not by group email), or regenerate later to email a new one.</div>
+              <div className="secret" aria-label="Access code">{code?.code}</div>
+              <button className="btn" onClick={() => code?.code && navigator.clipboard?.writeText(code.code)}>Copy to clipboard</button>
+            </div>
+            <div className="modal-foot"><button className="btn btn-primary" onClick={() => codeRef.current?.close()}>I have recorded the code</button></div>
+          </>
+        )}
       </dialog>
     </div>
   );

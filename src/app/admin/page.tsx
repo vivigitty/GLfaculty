@@ -4,7 +4,7 @@ import { listYears, isAcceptingSubmissions } from "@/server/services/academicYea
 import { listSubmissions } from "@/server/services/submissions";
 import { listFaculty } from "@/server/services/faculty";
 import { emailIssues } from "@/server/services/adminQueries";
-import { Card, Empty, PageHeader, Stat, StatusBadge } from "@/components/ui";
+import { Alert, Card, Empty, PageHeader, Stat, StatusBadge } from "@/components/ui";
 import { fmtDate, fmtDateTime, fmtPoints } from "@/lib/format";
 import { totalOf } from "@/server/scoring/engine";
 
@@ -29,6 +29,7 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
   // A faculty member whose only record was rejected has not (re)started yet.
   const notStarted = active.filter((f) => !subs.some((s) => s.facultyId === f.id && s.status !== "REJECTED")).length;
   const queue = subs.filter((s) => s.status === "SUBMITTED" || s.status === "UNDER_REVIEW").sort((a, b) => (a.submittedAt ?? "").localeCompare(b.submittedAt ?? ""));
+  const stale = subs.filter((s) => s.policyVersion !== ay.policyVersion && ["SUBMITTED", "UNDER_REVIEW", "NEEDS_CLARIFICATION", "APPROVED"].includes(s.status));
   const q = (status: string) => `/admin/submissions?ay=${ay.id}&status=${status}`;
 
   return (
@@ -48,6 +49,12 @@ export default async function AdminDashboard({ searchParams }: { searchParams: P
           )
         }
       />
+      {stale.length > 0 && (
+        <Alert tone="warn" title="Policy version changed">
+          {ay.label} now uses <strong>{ay.policyVersion}</strong>, but {stale.length} submitted/approved record(s) were scored under an older version.{" "}
+          <Link href="/admin/policy-changes">Review and recompute</Link>.
+        </Alert>
+      )}
       <div className="grid-4">
         <Stat label="Awaiting review" value={count("SUBMITTED")} href={q("SUBMITTED")} sub="Submitted, not yet opened" />
         <Stat label="Under review" value={count("UNDER_REVIEW")} href={q("UNDER_REVIEW")} />

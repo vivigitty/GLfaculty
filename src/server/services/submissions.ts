@@ -355,6 +355,40 @@ export async function setLineReview(
   });
 }
 
+/** Score lines that still need Admin verification before the submission can be approved. */
+export function unverifiedLines(sub: Pick<Submission, "submittedScore" | "lineReviews">) {
+  return (sub.submittedScore?.lines ?? []).filter((l) => sub.lineReviews[l.lineId]?.status !== "VERIFIED");
+}
+
+/**
+ * Bulk verification: sets the verification status of many lines at once (e.g. "select all → Verified"),
+ * leaving each line's note and approved-points override untouched. One audit event lists every line.
+ */
+export async function bulkSetLineStatus(id: string, rev: number, lineIds: string[], status: "VERIFIED" | "UNVERIFIED", actor: Actor) {
+  const ids = [...new Set(lineIds)];
+  if (ids.length === 0) throw new UserError("Select at least one score line.");
+  return adminMutate(id, rev, actor, ADMIN_REVIEWABLE, async (cur) => {
+    const known = new Set((cur.submittedScore?.lines ?? []).map((l) => l.lineId));
+    const unknown = ids.filter((x) => !known.has(x));
+    if (unknown.length) throw new UserError("Some selected score lines no longer exist. Reload the page and try again.");
+    const now = nowIso();
+    const lineReviews = { ...cur.lineReviews };
+    const changed: { line: string; before: string }[] = [];
+    for (const lineId of ids) {
+      const prev = lineReviews[lineId];
+      if ((prev?.status ?? "UNVERIFIED") === status) continue;
+      changed.push({ line: lineId, before: prev?.status ?? "UNVERIFIED" });
+      lineReviews[lineId] = { status, note: prev?.note ?? "", approvedPoints: prev?.approvedPoints ?? null, reason: prev?.reason ?? "", updatedAt: now };
+    }
+    return {
+      next: { ...cur, status: "UNDER_REVIEW", lineReviews },
+      action: "LINE_REVIEWS_BULK_UPDATED",
+      before: { lines: changed },
+      after: { status, count: changed.length },
+    };
+  });
+}
+
 /** Adjusts one approved category (R, T or S). Submitted values and other categories are untouched. */
 export async function adjustApprovedCategory(id: string, rev: number, category: Category, value: string, reason: string, actor: Actor) {
   if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new UserError("Approved points must be a non-negative number.", [{ path: `approved.${category}`, message: "Enter a number." }]);
@@ -388,6 +422,15 @@ export async function approve(id: string, rev: number, note: string, actor: Acto
     const cur = await tx.require<Submission>(C.submissions, id);
     if (cur._rev !== rev) throw new UserError("This submission was changed by someone else. Reload and try again.");
     if (!ADMIN_REVIEWABLE.has(cur.status)) throw new UserError("Only submitted or under-review submissions can be approved.");
+    const ay = await tx.require<AcademicYear>(C.academicYears, cur.academicYearId);
+    if (ay.policyVersion !== cur.policyVersion) {
+      throw new UserError(`This submission was scored under ${cur.policyVersion}, but ${ay.label} now uses ${ay.policyVersion}. Recompute it (Admin → Policy changes) before approving.`);
+    }
+    const pending = unverifiedLines(cur);
+    if (pending.length) {
+      const total = cur.submittedScore?.lines.length ?? 0;
+      throw new UserError(`${pending.length} of ${total} score line(s) are not verified yet. Mark every line Verified (use "Select all" for bulk verification) before approving.`);
+    }
     if (cur.submittedPoints && cur.approvedPoints) {
       const missing = (["R", "T", "S"] as const).filter((k) => !new Decimal(cur.approvedPoints![k]).eq(cur.submittedPoints![k]) && !categoryRemark(cur, k));
       if (missing.length) throw new UserError(`Add a remark for approved ${missing.join(", ")} — it differs from the submitted value and the remark is shown on the faculty's final PDF.`);

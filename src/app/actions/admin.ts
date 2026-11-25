@@ -11,6 +11,7 @@ import * as pay from "@/server/services/payments";
 import * as email from "@/server/services/email";
 import * as policies from "@/server/services/policies";
 import { generateExport } from "@/server/services/exports";
+import * as recompute from "@/server/services/recompute";
 
 /** Admin server actions. Every one re-checks the Admin session on the server. */
 
@@ -63,6 +64,17 @@ export async function lineReviewAction(submissionId: string, revision: number, l
   }, "Line review saved");
 }
 
+export async function bulkLineStatusAction(submissionId: string, revision: number, lineIds: string[], status: "VERIFIED" | "UNVERIFIED"): Promise<ActionResult> {
+  return run(async () => {
+    const { actor } = await adminAction();
+    const ids = z.array(z.string().max(200)).max(1000).parse(lineIds);
+    const st = z.enum(["VERIFIED", "UNVERIFIED"]).parse(status);
+    await subs.bulkSetLineStatus(id.parse(submissionId), rev.parse(revision), ids, st, actor);
+    touch(`/admin/submissions/${submissionId}`);
+    return undefined;
+  }, status === "VERIFIED" ? "Selected lines marked verified" : "Selected lines marked unverified");
+}
+
 export async function exportAndEmailAction(submissionId: string, op: "regenerate" | "resend"): Promise<ActionResult> {
   return run(async () => {
     const { actor } = await adminAction();
@@ -97,12 +109,23 @@ export async function saveFacultyAction(facultyId: string | null, revision: numb
   }, "Faculty record saved");
 }
 
-export async function issueCodeAction(facultyId: string): Promise<ActionResult<{ code: string; name: string }>> {
+/**
+ * Issues/regenerates a code and emails it to the faculty member. The raw code is returned to the
+ * browser only when the email could not be handed to the provider, so the Admin can deliver it another way.
+ */
+export async function issueCodeAction(facultyId: string): Promise<ActionResult<{ name: string; email: string; emailed: boolean; emailError: string | null; code: string | null }>> {
   return run(async () => {
     const { actor } = await adminAction();
-    const { code, faculty } = await fac.issueAccessCode(id.parse(facultyId), actor);
+    const r = await fac.issueAccessCode(id.parse(facultyId), actor);
     touch("/admin/faculty");
-    return { code, name: faculty.displayName };
+    const emailed = r.email !== null && r.email.status !== "FAILED";
+    return {
+      name: r.faculty.displayName,
+      email: r.faculty.email,
+      emailed,
+      emailError: emailed ? null : (r.email?.errorMessage ?? "The email could not be sent."),
+      code: emailed ? null : r.code,
+    };
   });
 }
 
@@ -142,6 +165,25 @@ export async function updatePolicyVersionAction(input: unknown, reason: string):
     touch("/admin/policy", "/admin/academic-years");
     return { version: r.version, changes: r.changes.length };
   }, "Policy version updated");
+}
+
+export async function runPolicyChangeAction(submissionIds: string[], draftIds: string[], reason: string): Promise<ActionResult<{ recomputed: number; notified: number; failures: string[] }>> {
+  return run(async () => {
+    const { actor } = await adminAction();
+    const ids = z.array(id).max(2000);
+    const r = await recompute.runPolicyChange({ submissionIds: ids.parse(submissionIds), draftIds: ids.parse(draftIds), reason: text.parse(reason ?? "") }, actor);
+    touch("/admin/policy-changes", "/admin", "/admin/submissions");
+    return r;
+  });
+}
+
+export async function recomputeOneAction(submissionId: string, reason: string): Promise<ActionResult> {
+  return run(async () => {
+    const { actor } = await adminAction();
+    await recompute.recomputeSubmission(id.parse(submissionId), text.parse(reason ?? ""), actor);
+    touch(`/admin/submissions/${submissionId}`, "/admin/policy-changes");
+    return undefined;
+  }, "Recomputed under the current policy; the faculty member has been emailed");
 }
 
 // ---------------------------------------------------------------- Payments

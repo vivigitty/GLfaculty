@@ -90,7 +90,7 @@ export function PolicyEditor(p: {
                 <option value="">Don&apos;t assign now (assign later in Academic years)</option>
                 {p.years.filter((y) => !p.inPlace || y.policyVersion !== p.baseVersion).map((y) => <option key={y.id} value={y.id}>{y.label} — currently {y.policyVersion}</option>)}
               </select>
-              {fe.assignToYearId ? <span className="err">{fe.assignToYearId}</span> : <span className="hint">{p.inPlace ? "Years already using this version pick up the changes automatically. " : ""}Allowed only while nothing has been submitted for that year. Drafts switch to the new values.</span>}
+              {fe.assignToYearId ? <span className="err">{fe.assignToYearId}</span> : <span className="hint">{p.inPlace ? "Years already using this version pick up the changes automatically. " : ""}Allowed at any time. Drafts switch to the new values immediately; submitted and approved records are listed under Admin → Policy changes for an explicit recompute.</span>}
             </div>
             <div className="field span-2">
               <label htmlFor="pv-reason" className="req">Reason for the change</label>

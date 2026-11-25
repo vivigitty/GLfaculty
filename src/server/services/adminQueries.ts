@@ -16,10 +16,15 @@ export async function emailIssues() {
   const latest = new Map<string, EmailAttempt>();
   for (const a of attempts.filter((x) => x.exportId && x.submissionId).sort((x, y) => x.queuedAt.localeCompare(y.queuedAt))) latest.set(a.submissionId!, a);
   const failed = [...latest.values()].filter((a) => a.status === "FAILED" || a.status === "BOUNCED");
+  // Latest access-code email per faculty member; flag if it failed or bounced (the fix is to regenerate).
+  const latestCode = new Map<string, EmailAttempt>();
+  for (const a of attempts.filter((x) => x.purpose === "ACCESS_CODE" && x.facultyId).sort((x, y) => x.queuedAt.localeCompare(y.queuedAt))) latestCode.set(a.facultyId!, a);
+  const accessCodeFailures = [...latestCode.values()].filter((a) => a.status === "FAILED" || a.status === "BOUNCED");
   const unresolved = receipts.filter((r) => !r.resolved && r.followUp !== "CORRECTION_REQUESTED").sort((a, b) => a.confirmedAt.localeCompare(b.confirmedAt));
   const pending = corrections.filter((c) => c.status === "PENDING").sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
   return {
     failed,
+    accessCodeFailures,
     unresolved,
     corrections: pending,
     recentCorrections: corrections.filter((c) => c.status !== "PENDING").sort((a, b) => (b.reviewedAt ?? "").localeCompare(a.reviewedAt ?? "")).slice(0, 20),

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/server/auth/session";
 import { C, db } from "@/server/db";
 import type { AuditEvent, Faculty, Receipt, Submission } from "@/server/domain/schemas";
-import { versionsOf, viewOf } from "@/server/services/submissions";
+import { unverifiedLines, versionsOf, viewOf } from "@/server/services/submissions";
 import { attemptsFor } from "@/server/services/email";
 import { exportsFor } from "@/server/services/exports";
 import { designationLabel, researchStatusLabel } from "@/lib/policyView";
@@ -10,7 +10,8 @@ import { fmtDate, fmtDateTime, fmtINR } from "@/lib/format";
 import { Alert, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { PaymentExplanation, PointsComparison } from "@/components/Points";
 import { SubmissionDetail } from "@/components/SubmissionDetail";
-import { CategoryAdjust, DecisionPanel, ExportButtons, LineReviewRow } from "./ReviewControls";
+import { lineDetails } from "@/lib/lineDetails";
+import { CategoryAdjust, DecisionPanel, ExportButtons, RecomputeNow, ScoreLinesTable } from "./ReviewControls";
 
 export const metadata = { title: "Review submission" };
 
@@ -49,6 +50,11 @@ export default async function AdminReview({ params }: { params: Promise<{ id: st
           <ul>{score.warnings.map((w, i) => <li key={i}>{w.message}</li>)}</ul>
         </Alert>
       )}
+      {ay.policyVersion !== sub.policyVersion && (sub.status === "SUBMITTED" || sub.status === "UNDER_REVIEW" || sub.status === "NEEDS_CLARIFICATION" || sub.status === "APPROVED") && (
+        <Alert tone="warn" title="Policy version changed">
+          <RecomputeNow submissionId={sub.id} from={sub.policyVersion} to={ay.policyVersion} />
+        </Alert>
+      )}
       {sub.locked && <Alert tone="info">This submission is locked. Use “Reopen for amendment” to make further changes (audited).</Alert>}
 
       <div className="layout-side">
@@ -61,18 +67,13 @@ export default async function AdminReview({ params }: { params: Promise<{ id: st
             </div>
           </Card>
 
-          <Card title="Score lines" subtitle="Verify each claimed activity. An override changes only that line's category." flush>
-            <div className="table-wrap">
-              <table className="table table-compact">
-                <thead><tr><th>Cat.</th><th>Activity</th><th /><th className="num">Submitted</th><th className="num">Approved</th><th>Verification</th><th /></tr></thead>
-                <tbody>
-                  {score.lines.length === 0 && <tr><td colSpan={7} className="muted">No scored lines.</td></tr>}
-                  {score.lines.map((l) => (
-                    <LineReviewRow key={l.lineId} submissionId={sub.id} rev={sub._rev} line={l} review={sub.lineReviews[l.lineId]} editable={editable} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <Card title="Score lines" subtitle="Tick lines and mark them verified in bulk; open individual lines (▸) to see what led to their points, and Review to override." flush>
+            <ScoreLinesTable
+              submissionId={sub.id}
+              rev={sub._rev}
+              editable={editable}
+              rows={score.lines.map((l) => ({ line: l, review: sub.lineReviews[l.lineId], detail: lineDetails(l, sub.content, policy, score) }))}
+            />
           </Card>
 
           <SubmissionDetail sub={sub} policy={policy} showReviews />
@@ -80,7 +81,7 @@ export default async function AdminReview({ params }: { params: Promise<{ id: st
 
         <aside className="stack sticky">
           <Card title="Decision">
-            <DecisionPanel submissionId={sub.id} rev={sub._rev} status={sub.status} />
+            <DecisionPanel submissionId={sub.id} rev={sub._rev} status={sub.status} unverified={unverifiedLines(sub).length} />
           </Card>
           <Card title="Faculty">
             <dl className="kv small">

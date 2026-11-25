@@ -15,6 +15,27 @@ export default async function EmailIssuesPage() {
     <div className="stack">
       <PageHeader title="Email issues" subtitle="Provider acceptance, delivery, bounces and faculty-confirmed receipt are tracked separately." />
 
+      {q.accessCodeFailures.length > 0 && (
+        <Card title="Access-code emails not delivered" subtitle="Check the address in the Faculty master, then regenerate the code there to email a new one." flush>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Faculty</th><th>Address</th><th>Status</th><th>Error</th><th>When</th></tr></thead>
+              <tbody>
+                {q.accessCodeFailures.map((a) => (
+                  <tr key={a.id}>
+                    <td className="strong"><Link href="/admin/faculty">{name(a.facultyId)}</Link></td>
+                    <td className="small">{a.recipientEmail}</td>
+                    <td><StatusBadge status={a.status} /></td>
+                    <td className="small">{a.errorMessage ?? "Nil"}</td>
+                    <td className="small muted">{fmtDateTime(a.queuedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card title="Email correction requests" subtitle="Faculty cannot change their email. Approve only after confirming directly with the faculty member." flush>
         {q.corrections.length === 0 ? (
           <div className="card-body"><Empty>No pending requests.</Empty></div>

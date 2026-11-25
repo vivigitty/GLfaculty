@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAuth } from "@/server/auth/session";
+import { getAuthFor } from "@/server/auth/session";
 import { consolidated, consolidatedCsv } from "@/server/services/payments";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const auth = await getAuth();
-  if (!auth || auth.session.role !== "ADMIN") return new NextResponse("Forbidden", { status: 403 });
+  const auth = await getAuthFor("ADMIN");
+  if (!auth) return new NextResponse("Forbidden", { status: 403 });
   const url = new URL(req.url);
   const ay = url.searchParams.get("ay") ?? "";
   const cat = url.searchParams.get("view") === "junior" ? "JUNIOR" : "STANDARD";

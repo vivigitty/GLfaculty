@@ -47,7 +47,7 @@ export default async function PolicyPage({ searchParams }: { searchParams: Promi
       />
       <div className="alert alert-info">
         <div>
-          Every point value, rate and threshold below can be changed from the portal. A version that has never been used — nothing submitted, approved or paid under it — can be edited directly with <strong>Edit this version</strong>; drafts pick up the new values. Once a version is (or was) in use it is <strong>immutable</strong>: choose <strong>Edit values as new version</strong> and assign the new version to an academic year. Submissions keep the version they were scored with and nothing is silently recalculated.{" "}
+          Every point value, rate and threshold below can be changed from the portal. A version that has never been used — nothing submitted, approved or paid under it — can be edited directly with <strong>Edit this version</strong>; drafts pick up the new values. Once a version is (or was) in use it is <strong>immutable</strong>: choose <strong>Edit values as new version</strong> and assign the new version to an academic year. A year can switch versions at any time; submitted and approved records keep the version they were scored with until you recompute them under Policy changes — nothing is silently recalculated.{" "}
           <span className="small">{usage.inUse ? <>This version is in use: {usage.reasons.join("; ")}.</> : <>This version has not been used yet, so it can be edited in place.</>}</span>{" "}
           {rec.changeReason && <span className="small">Last change: {rec.changeReason}.</span>}
         </div>

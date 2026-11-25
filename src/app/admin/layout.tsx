@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/admin/faculty", label: "Faculty master" },
   { href: "/admin/academic-years", label: "Academic years" },
   { href: "/admin/policy", label: "Policy" },
+  { href: "/admin/policy-changes", label: "Policy changes" },
   { href: "/admin/audit", label: "Audit log" },
 ];
 
