@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/server/auth/session";
 import { listYears } from "@/server/services/academicYears";
 import { getPolicy, listPolicies } from "@/server/policy/load";
+import { policyUsage } from "@/server/services/policies";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { fmtDateTime, fmtINR } from "@/lib/format";
 import { resolveOptions } from "@/lib/policyView";
@@ -18,6 +19,8 @@ export default async function PolicyPage({ searchParams }: { searchParams: Promi
   if (!rec) return <p>No policy installed. Run <code>npm run seed</code>.</p>;
   const p = await getPolicy(rec.id);
   const usedBy = years.filter((y) => y.policyVersion === rec.id).map((y) => y.label);
+  const usage = await policyUsage(rec.id);
+  const editHref = `/admin/policy/edit?from=${encodeURIComponent(rec.id)}`;
   return (
     <div className="stack">
       <PageHeader
@@ -31,13 +34,22 @@ export default async function PolicyPage({ searchParams }: { searchParams: Promi
                 <button className="btn btn-sm">View</button>
               </form>
             )}
-            <Link className="btn btn-primary" href={`/admin/policy/edit?from=${encodeURIComponent(rec.id)}`}>Edit values as new version</Link>
+            {usage.inUse ? (
+              <Link className="btn btn-primary" href={editHref}>Edit values as new version</Link>
+            ) : (
+              <>
+                <Link className="btn" href={editHref}>Copy as new version</Link>
+                <Link className="btn btn-primary" href={`${editHref}&mode=inplace`}>Edit this version</Link>
+              </>
+            )}
           </div>
         }
       />
       <div className="alert alert-info">
         <div>
-          Every point value, rate and threshold below can be changed from the portal: choose <strong>Edit values as new version</strong>, adjust the values, and assign the new version to an academic year (for example next year, or this year before anything is submitted). Versions are <strong>immutable</strong> — submissions keep the version they were scored with and nothing is silently recalculated. {rec.changeReason && <span className="small">This version: {rec.changeReason}.</span>}
+          Every point value, rate and threshold below can be changed from the portal. A version that has never been used — nothing submitted, approved or paid under it — can be edited directly with <strong>Edit this version</strong>; drafts pick up the new values. Once a version is (or was) in use it is <strong>immutable</strong>: choose <strong>Edit values as new version</strong> and assign the new version to an academic year. Submissions keep the version they were scored with and nothing is silently recalculated.{" "}
+          <span className="small">{usage.inUse ? <>This version is in use: {usage.reasons.join("; ")}.</> : <>This version has not been used yet, so it can be edited in place.</>}</span>{" "}
+          {rec.changeReason && <span className="small">Last change: {rec.changeReason}.</span>}
         </div>
       </div>
       <div className="grid-2">

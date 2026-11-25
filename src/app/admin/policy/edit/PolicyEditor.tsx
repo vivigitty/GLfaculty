@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createPolicyVersionAction } from "@/app/actions/admin";
+import { createPolicyVersionAction, updatePolicyVersionAction } from "@/app/actions/admin";
 import { useAction } from "@/components/useAction";
 import { PARAM_GROUPS, checkParamValue, type PolicyParam } from "@/lib/policyParams";
 
 type Year = { id: string; label: string; policyVersion: string; startDate: string };
 
 export function PolicyEditor(p: {
+  /** Set when editing `baseVersion` itself (allowed only while it has never been used). */
+  inPlace: { rev: number } | null;
   baseVersion: string;
   baseLabel: string;
   params: PolicyParam[];
@@ -44,23 +46,34 @@ export function PolicyEditor(p: {
 
   const save = () => {
     const edits = Object.fromEntries(changed.map((x) => [x.id, values[x.id] ?? ""]));
-    a.exec(
-      () => createPolicyVersionAction({ baseVersion: p.baseVersion, newVersion, label, effectiveFrom, edits, assignToYearId: assignTo || null }, reason),
-      (d) => router.push(`/admin/policy?v=${encodeURIComponent(d.version)}`),
-    );
+    const done = (d: { version: string }) => router.push(`/admin/policy?v=${encodeURIComponent(d.version)}`);
+    if (p.inPlace) {
+      const ip = p.inPlace;
+      a.exec(() => updatePolicyVersionAction({ version: p.baseVersion, expectedRev: ip.rev, label, effectiveFrom, edits, assignToYearId: assignTo || null }, reason), done);
+    } else {
+      a.exec(() => createPolicyVersionAction({ baseVersion: p.baseVersion, newVersion, label, effectiveFrom, edits, assignToYearId: assignTo || null }, reason), done);
+    }
   };
 
   return (
     <div className="stack">
       <div className="card">
-        <div className="card-head"><div><h2>New version</h2><p>Name, effective date and where to use it.</p></div></div>
+        <div className="card-head"><div>{p.inPlace ? <><h2>Version {p.baseVersion}</h2><p>Description, effective date and where to use it.</p></> : <><h2>New version</h2><p>Name, effective date and where to use it.</p></>}</div></div>
         <div className="card-body">
           <div className="form-grid">
-            <div className="field">
-              <label htmlFor="pv-name" className="req">Version name</label>
-              <input id="pv-name" className="input mono" value={newVersion} onChange={(e) => setNewVersion(e.target.value)} aria-invalid={fe.newVersion ? true : undefined} />
-              {p.versions.includes(newVersion.trim()) ? <span className="err">Already exists — choose a new name.</span> : fe.newVersion ? <span className="err">{fe.newVersion}</span> : <span className="hint">For example 2026-27.v1 for next year.</span>}
-            </div>
+            {p.inPlace ? (
+              <div className="field">
+                <label htmlFor="pv-name">Version name</label>
+                <input id="pv-name" className="input mono" value={p.baseVersion} readOnly aria-readonly="true" />
+                <span className="hint">Not yet used, so it is edited in place.</span>
+              </div>
+            ) : (
+              <div className="field">
+                <label htmlFor="pv-name" className="req">Version name</label>
+                <input id="pv-name" className="input mono" value={newVersion} onChange={(e) => setNewVersion(e.target.value)} aria-invalid={fe.newVersion ? true : undefined} />
+                {p.versions.includes(newVersion.trim()) ? <span className="err">Already exists — choose a new name.</span> : fe.newVersion ? <span className="err">{fe.newVersion}</span> : <span className="hint">For example 2026-27.v1 for next year.</span>}
+              </div>
+            )}
             <div className="field">
               <label htmlFor="pv-eff" className="req">Effective from</label>
               <input id="pv-eff" type="date" className="input" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
@@ -75,9 +88,9 @@ export function PolicyEditor(p: {
               <label htmlFor="pv-year">Use for academic year</label>
               <select id="pv-year" className="input" value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
                 <option value="">Don&apos;t assign now (assign later in Academic years)</option>
-                {p.years.map((y) => <option key={y.id} value={y.id}>{y.label} — currently {y.policyVersion}</option>)}
+                {p.years.filter((y) => !p.inPlace || y.policyVersion !== p.baseVersion).map((y) => <option key={y.id} value={y.id}>{y.label} — currently {y.policyVersion}</option>)}
               </select>
-              {fe.assignToYearId ? <span className="err">{fe.assignToYearId}</span> : <span className="hint">Allowed only while nothing has been submitted for that year. Drafts switch to the new values.</span>}
+              {fe.assignToYearId ? <span className="err">{fe.assignToYearId}</span> : <span className="hint">{p.inPlace ? "Years already using this version pick up the changes automatically. " : ""}Allowed only while nothing has been submitted for that year. Drafts switch to the new values.</span>}
             </div>
             <div className="field span-2">
               <label htmlFor="pv-reason" className="req">Reason for the change</label>
@@ -137,10 +150,10 @@ export function PolicyEditor(p: {
       <div className="card" style={{ position: "sticky", bottom: 0, zIndex: 2 }}>
         <div className="card-body row-between" style={{ flexWrap: "wrap", gap: 12 }}>
           <div className="small">
-            {a.error ? <span role="alert" style={{ color: "var(--bad)" }}>{a.error}</span> : changed.length === 0 ? "No values changed yet — you can still save a copy for another year." : `${changed.length} change(s) will be saved as ${newVersion || "a new version"}.`}
+            {a.error ? <span role="alert" style={{ color: "var(--bad)" }}>{a.error}</span> : p.inPlace ? (changed.length === 0 ? "No values changed yet." : `${changed.length} change(s) will be saved to ${p.baseVersion}.`) : changed.length === 0 ? "No values changed yet — you can still save a copy for another year." : `${changed.length} change(s) will be saved as ${newVersion || "a new version"}.`}
           </div>
-          <button type="button" className="btn btn-primary" disabled={a.pending || localErrors.size > 0 || !reason.trim() || !newVersion.trim() || p.versions.includes(newVersion.trim())} onClick={save}>
-            {a.pending ? "Saving…" : "Save as new version"}
+          <button type="button" className="btn btn-primary" disabled={a.pending || localErrors.size > 0 || !reason.trim() || (p.inPlace ? false : !newVersion.trim() || p.versions.includes(newVersion.trim()))} onClick={save}>
+            {a.pending ? "Saving…" : p.inPlace ? `Save changes to ${p.baseVersion}` : "Save as new version"}
           </button>
         </div>
       </div>

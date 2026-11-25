@@ -362,6 +362,54 @@ describe("Admin policy editor", () => {
     // The failed assignment rolled back the whole transaction, including the new version.
     expect(await db().get(C.policies, "2025-26.v3")).toBeNull();
   });
+
+  it("edits a never-used version in place, and refuses once it is in use", async () => {
+    const { db, C, subs } = await mods();
+    const policies = await import("@/server/services/policies");
+    const { editableParameters } = await import("@/lib/policyParams");
+    const { getPolicy } = await import("@/server/policy/load");
+    type PolicyRecord = import("@/server/domain/schemas").PolicyRecord;
+
+    // 2025-26.v2 has submitted/approved records from earlier tests: new version only.
+    expect((await policies.policyUsage("2025-26.v2")).inUse).toBe(true);
+    // 2026-27.v1 (created above) only has a draft under it.
+    expect(await policies.policyUsage("2026-27.v1")).toEqual({ inUse: false, reasons: [] });
+
+    const params = editableParameters(await getPolicy("2026-27.v1"));
+    const areaChair = params.find((p) => p.label.startsWith("Area Chair — points"))!.id;
+    const rec = await db().require<PolicyRecord>(C.policies, "2026-27.v1");
+    const input = { version: "2026-27.v1", expectedRev: rec._rev, label: "AY 2026-27 values (revised)", effectiveFrom: "2026-04-01", edits: { [areaChair]: "14" }, assignToYearId: null };
+    await expect(policies.updatePolicyVersionInPlace(input, "", ADMIN)).rejects.toThrow(/reason/i);
+    const res = await policies.updatePolicyVersionInPlace(input, "Owner tweak before opening", ADMIN);
+    expect(res.changes).toHaveLength(1);
+    const p = await getPolicy("2026-27.v1");
+    expect(p.service.roles.find((r) => r.key === "AREA_CHAIR")?.points).toBe("14");
+    expect(p.label).toBe("AY 2026-27 values (revised)");
+    // Stale revisions are rejected.
+    await expect(policies.updatePolicyVersionInPlace({ ...input, edits: { [areaChair]: "15" } }, "again", ADMIN)).rejects.toThrow(/changed by someone else/);
+
+    // The previous policy body is kept in the audit log.
+    const ev = await db().list<AuditEvent>(C.audit, (a) => a.action === "POLICY_VERSION_EDITED" && a.entityId === "2026-27.v1");
+    expect(ev).toHaveLength(1);
+    const before = ev[0]?.before as { policy?: { service?: { roles?: { key: string; points: string }[] } } };
+    expect(before.policy?.service?.roles?.find((r) => r.key === "AREA_CHAIR")?.points).toBe("12");
+
+    // The draft under this version is re-scored with the edited value, then submitted.
+    const draft = (await db().list<Submission>(C.submissions, (s) => s.policyVersion === "2026-27.v1" && s.status === "DRAFT"))[0]!;
+    const faculty = await db().require<import("@/server/domain/schemas").Faculty>(C.faculty, draft.facultyId);
+    const actor = { role: "FACULTY" as const, ref: faculty.id };
+    const content = { teaching: [], research: [], service: { roles: { AREA_CHAIR: { quantity: "1", description: "" } }, disclosures: {} }, facultyNotes: "" };
+    const saved = await subs.saveDraft(faculty, draft.id, draft._rev, content, actor);
+    expect(saved.preview.score.totals.S).toBe("14");
+    await subs.submit(faculty, draft.id, (await db().require<Submission>(C.submissions, draft.id))._rev, content, { declarationAccepted: true }, actor);
+
+    // Now in use: in-place edits are refused and nothing changes.
+    const usage = await policies.policyUsage("2026-27.v1");
+    expect(usage.inUse).toBe(true);
+    const rec2 = await db().require<PolicyRecord>(C.policies, "2026-27.v1");
+    await expect(policies.updatePolicyVersionInPlace({ ...input, expectedRev: rec2._rev, edits: { [areaChair]: "20" } }, "late change", ADMIN)).rejects.toThrow(/already in use/);
+    expect((await getPolicy("2026-27.v1")).service.roles.find((r) => r.key === "AREA_CHAIR")?.points).toBe("14");
+  });
 });
 
 describe("mid-year policy change after rejections", () => {
