@@ -67,6 +67,12 @@ p { margin: 0; }
 .userbox { display: flex; align-items: center; gap: 12px; font-size: 13px; color: rgba(255,255,255,0.85); white-space: nowrap; }
 .userbox button { background: transparent; border: 1px solid rgba(255,255,255,0.35); color: #fff; padding: 5px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
 .userbox button:hover { background: rgba(255,255,255,0.1); }
+/* Many links (Admin): brand + user on the first row, navigation on its own full-width row that wraps
+   instead of being cut off on the right. */
+.topbar-inner.stacked { flex-wrap: wrap; height: auto; row-gap: 0; padding-top: 8px; }
+.topbar-inner.stacked .userbox { margin-left: auto; }
+.topbar-inner.stacked .nav { order: 3; flex: 1 1 100%; flex-wrap: wrap; overflow: visible; margin: 4px 0 6px -11px; }
+.shell-stacked { --topbar-h: 104px; }
 
 .page { max-width: 1280px; margin: 0 auto; padding: 24px; }
 .page-narrow { max-width: 980px; }
@@ -80,7 +86,7 @@ p { margin: 0; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .layout-side { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
-.sticky { position: sticky; top: 72px; }
+.sticky { position: sticky; top: calc(var(--topbar-h, 56px) + 16px); }
 @media (max-width: 960px) {
   .grid-2, .grid-3, .layout-side { grid-template-columns: 1fr; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }

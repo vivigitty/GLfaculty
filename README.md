@@ -6,7 +6,7 @@ approves, PDFs are generated and emailed, and consolidated Faculty / Junior Facu
 derived automatically.
 
 Specs: `REQUIREMENTS.md`, `SCORING_MAPPING.md`, `DESIGN.md`, `AGENTS.md`.
-Storage decision: `docs/adr/0001-yaml-file-storage.md`. Unresolved policy items: `docs/OPEN_QUESTIONS.md`.
+Storage decision: `docs/adr/0001-yaml-file-storage.md`. Server deployment: `docs/DEPLOY_UAT.md`. Unresolved policy items: `docs/OPEN_QUESTIONS.md`.
 
 ## Quick start (local)
 

@@ -67,9 +67,9 @@ export async function seedDemo(log: (m: string) => void = console.log): Promise<
   if (process.env.NODE_ENV === "production") throw new Error("Demo data is never created in production.");
   const actor = { role: "SYSTEM" as const, ref: "demo-seed" };
   const demo = [
-    { displayName: "Demo Faculty (Professor)", email: "demo.professor@example.edu", designationKey: "PROFESSOR", facultyCategory: "STANDARD" as const, dateOfJoining: "2015-07-01" },
-    { displayName: "Demo Faculty (Assistant Professor)", email: "demo.assistant@example.edu", designationKey: "ASSISTANT_PROFESSOR", facultyCategory: "STANDARD" as const, dateOfJoining: "2025-10-01" },
-    { displayName: "Demo Junior Faculty", email: "demo.junior@example.edu", designationKey: "JUNIOR_FACULTY", facultyCategory: "JUNIOR" as const, dateOfJoining: "2022-01-10" },
+    { displayName: "Demo Faculty (Professor)", email: "demo.professor@example.edu", designationKey: "PROFESSOR", dateOfJoining: "2015-07-01" },
+    { displayName: "Demo Faculty (Assistant Professor)", email: "demo.assistant@example.edu", designationKey: "ASSISTANT_PROFESSOR", dateOfJoining: "2025-10-01" },
+    { displayName: "Demo Junior Faculty", email: "demo.junior@example.edu", designationKey: "JUNIOR_FACULTY", dateOfJoining: "2022-01-10" },
   ];
   const lines: string[] = [];
   for (const d of demo) {

@@ -3,10 +3,12 @@ import { logoutAction } from "@/app/actions/auth";
 import { NavLinks } from "./NavLinks";
 
 export function Shell({ who, role, links, children }: { who: string; role: string; links: { href: string; label: string }[]; children: React.ReactNode }) {
+  // More links than fit beside the brand and user box: give navigation its own row.
+  const stacked = links.length > 5;
   return (
     <>
       <header className="topbar">
-        <div className="topbar-inner">
+        <div className={stacked ? "topbar-inner stacked" : "topbar-inner"}>
           <Link href={role === "Admin" ? "/admin" : "/faculty"} className="brand">
             <span className="brand-mark" aria-hidden>
               RTS
@@ -27,7 +29,7 @@ export function Shell({ who, role, links, children }: { who: string; role: strin
           </div>
         </div>
       </header>
-      <main className="page">{children}</main>
+      <main className={stacked ? "page shell-stacked" : "page"}>{children}</main>
     </>
   );
 }

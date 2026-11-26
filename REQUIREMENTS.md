@@ -109,7 +109,7 @@ Admin maintains the Faculty Master List. Each record contains:
 - Email address.
 - Designation.
 - Date of joining / service start date where required for eligibility prorating.
-- Faculty category (standard / Junior Faculty).
+- Faculty category (standard / Junior Faculty) — derived from the designation, not entered (owner decision 2026-11-26: only Junior Faculty and Librarian are Junior; no override).
 - Unique individual access-secret hash and access status (active/revoked).
 - Optional internal faculty identifier.
 
