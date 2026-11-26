@@ -23,14 +23,14 @@ type Row = {
 };
 type Opt = { key: string; label: string; facultyCategory?: string };
 
-const blank = { displayName: "", email: "", designationKey: "", facultyCategory: "STANDARD" as const, dateOfJoining: "", researchStatus: "RESEARCH_ACTIVE", employeeId: "", dateOfExit: "", active: true };
+const blank = { displayName: "", email: "", designationKey: "", dateOfJoining: "", researchStatus: "RESEARCH_ACTIVE", employeeId: "", dateOfExit: "", active: true };
 
 export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; designations: Opt[]; statuses: Opt[] }) {
   const a = useAction();
   const formRef = useRef<HTMLDialogElement>(null);
   const codeRef = useRef<HTMLDialogElement>(null);
   const [editing, setEditing] = useState<Row | null>(null);
-  const [form, setForm] = useState<{ displayName: string; email: string; designationKey: string; facultyCategory: "STANDARD" | "JUNIOR"; dateOfJoining: string; researchStatus: string; employeeId: string; dateOfExit: string; active: boolean }>(blank);
+  const [form, setForm] = useState<{ displayName: string; email: string; designationKey: string; dateOfJoining: string; researchStatus: string; employeeId: string; dateOfExit: string; active: boolean }>(blank);
   const [reason, setReason] = useState("");
   const [code, setCode] = useState<{ name: string; email: string; emailed: boolean; emailError: string | null; code: string | null } | null>(null);
   const [filter, setFilter] = useState("");
@@ -44,7 +44,7 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
   };
   const openEdit = (r: Row) => {
     setEditing(r);
-    setForm({ displayName: r.displayName, email: r.email, designationKey: r.designationKey, facultyCategory: r.facultyCategory, dateOfJoining: r.dateOfJoining ?? "", researchStatus: r.researchStatus, employeeId: r.employeeId ?? "", dateOfExit: r.dateOfExit ?? "", active: r.active });
+    setForm({ displayName: r.displayName, email: r.email, designationKey: r.designationKey, dateOfJoining: r.dateOfJoining ?? "", researchStatus: r.researchStatus, employeeId: r.employeeId ?? "", dateOfExit: r.dateOfExit ?? "", active: r.active });
     setReason("");
     a.setError(null);
     formRef.current?.showModal();
@@ -134,8 +134,7 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
                   className="input"
                   value={form.designationKey}
                   onChange={(e) => {
-                    const d = designations.find((x) => x.key === e.target.value);
-                    setForm({ ...form, designationKey: e.target.value, facultyCategory: d?.facultyCategory === "JUNIOR" ? "JUNIOR" : "STANDARD" });
+                    setForm({ ...form, designationKey: e.target.value });
                   }}
                   aria-invalid={fe.designationKey ? true : undefined}
                 >
@@ -145,11 +144,9 @@ export function FacultyManager({ rows, designations, statuses }: { rows: Row[]; 
                 {fe.designationKey && <span className="err">{fe.designationKey}</span>}
               </div>
               <div className="field">
-                <label htmlFor="f-cat">Faculty category</label>
-                <select id="f-cat" className="input" value={form.facultyCategory} onChange={(e) => setForm({ ...form, facultyCategory: e.target.value as "STANDARD" | "JUNIOR" })}>
-                  <option value="STANDARD">Standard (minimum 200)</option>
-                  <option value="JUNIOR">Junior Faculty (minimum 30)</option>
-                </select>
+                <span className="label">Faculty category</span>
+                <span className="small" aria-live="polite">{form.designationKey ? (designations.find((x) => x.key === form.designationKey)?.facultyCategory === "JUNIOR" ? "Junior Faculty (minimum 30)" : "Standard (minimum 200)") : "—"}</span>
+                <span className="hint">Set by the designation: Junior Faculty and Librarian are Junior; all others Standard.</span>
               </div>
               <div className="field">
                 <label htmlFor="f-doj">Date of joining</label>

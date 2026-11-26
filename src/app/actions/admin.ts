@@ -91,7 +91,6 @@ const facultyForm = z.object({
   displayName: z.string(),
   email: z.string(),
   designationKey: z.string(),
-  facultyCategory: z.enum(["STANDARD", "JUNIOR"]),
   dateOfJoining: z.string(),
   researchStatus: z.string(),
   employeeId: z.string(),

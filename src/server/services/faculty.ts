@@ -13,7 +13,6 @@ export const facultyInput = z.object({
   displayName: z.string().trim().min(2, "Enter the faculty name.").max(200),
   email: z.string().trim().email("Enter a valid email address."),
   designationKey: z.string().min(1, "Choose a designation."),
-  facultyCategory: z.enum(["STANDARD", "JUNIOR"]),
   dateOfJoining: z
     .string()
     .trim()
@@ -34,9 +33,14 @@ export const facultyInput = z.object({
 });
 export type FacultyInput = z.input<typeof facultyInput>;
 
-async function checkAgainstPolicy(v: z.output<typeof facultyInput>) {
+/**
+ * Validates against the current policy and returns the faculty category, which is always derived from
+ * the designation (owner decision 2026-11-26: no override; only Junior Faculty and Librarian are Junior).
+ */
+async function checkAgainstPolicy(v: z.output<typeof facultyInput>): Promise<Faculty["facultyCategory"]> {
   const policy = await currentPolicy();
-  if (!policy.designations.items.some((d) => d.key === v.designationKey)) {
+  const designation = policy.designations.items.find((d) => d.key === v.designationKey);
+  if (!designation) {
     throw new UserError("Designation is not configured.", [{ path: "designationKey", message: "Choose a configured designation." }]);
   }
   if (!policy.researchStatuses.some((r) => r.key === v.researchStatus)) {
@@ -48,6 +52,7 @@ async function checkAgainstPolicy(v: z.output<typeof facultyInput>) {
   if (v.dateOfExit && (Number.isNaN(Date.parse(v.dateOfExit)) || (v.dateOfJoining && v.dateOfExit < v.dateOfJoining))) {
     throw new UserError("Date of exit is invalid.", [{ path: "dateOfExit", message: "Use a valid date on or after the date of joining." }]);
   }
+  return designation.facultyCategory;
 }
 
 export async function listFaculty(): Promise<Faculty[]> {
@@ -67,7 +72,7 @@ export async function facultyLoginOptions(): Promise<{ id: string; label: string
 
 export async function createFaculty(input: FacultyInput, actor: Actor): Promise<Faculty> {
   const v = facultyInput.parse(input);
-  await checkAgainstPolicy(v);
+  const facultyCategory = await checkAgainstPolicy(v);
   const email = normalizeEmail(v.email);
   return db().transact(async (tx) => {
     const dup = await tx.list<Faculty>(C.faculty, (f) => f.email.toLowerCase() === email.toLowerCase());
@@ -76,6 +81,7 @@ export async function createFaculty(input: FacultyInput, actor: Actor): Promise<
     const rec = await tx.create<Faculty>(C.faculty, {
       id: newId("fac"),
       ...v,
+      facultyCategory,
       email,
       access: { status: "PENDING_ISSUE", secretHash: null, issuedAt: null, revokedAt: null, generation: 0 },
       createdAt: now,
@@ -89,7 +95,7 @@ export async function createFaculty(input: FacultyInput, actor: Actor): Promise<
 export async function updateFaculty(id: string, rev: number, input: FacultyInput, reason: string, actor: Actor): Promise<Faculty> {
   const v = facultyInput.parse(input);
   const why = reasonRequired(reason, "changing a faculty master record");
-  await checkAgainstPolicy(v);
+  const facultyCategory = await checkAgainstPolicy(v);
   const email = normalizeEmail(v.email);
   return db().transact(async (tx) => {
     const cur = await tx.require<Faculty>(C.faculty, id);
@@ -98,7 +104,7 @@ export async function updateFaculty(id: string, rev: number, input: FacultyInput
       const dup = await tx.list<Faculty>(C.faculty, (f) => f.id !== id && f.email.toLowerCase() === email.toLowerCase());
       if (dup.length) throw new UserError("Another faculty record already uses this email address.", [{ path: "email", message: "Email already in use." }]);
     }
-    const next = await tx.update<Faculty>(C.faculty, { ...cur, ...v, email, updatedAt: nowIso() });
+    const next = await tx.update<Faculty>(C.faculty, { ...cur, ...v, facultyCategory, email, updatedAt: nowIso() });
     const strip = (f: Faculty) => ({ ...f, access: undefined, _rev: undefined });
     await audit(tx, actor, { action: email !== cur.email ? "FACULTY_UPDATED_EMAIL_CHANGED" : "FACULTY_UPDATED", entityType: "faculty", entityId: id, before: strip(cur), after: strip(next), reason: why });
     return next;

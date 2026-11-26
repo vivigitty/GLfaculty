@@ -46,7 +46,7 @@ async function mods() {
 async function newFaculty(email: string, extra: Record<string, unknown> = {}) {
   const { fac } = await mods();
   const f = await fac.createFaculty(
-    { displayName: `Prof ${email}`, email, designationKey: "ASSISTANT_PROFESSOR", facultyCategory: "STANDARD", dateOfJoining: "2019-01-01", researchStatus: "RESEARCH_ACTIVE", employeeId: "", dateOfExit: "", active: true, ...extra },
+    { displayName: `Prof ${email}`, email, designationKey: "ASSISTANT_PROFESSOR", dateOfJoining: "2019-01-01", researchStatus: "RESEARCH_ACTIVE", employeeId: "", dateOfExit: "", active: true, ...extra },
     ADMIN,
   );
   const { code, faculty } = await fac.issueAccessCode(f.id, ADMIN);
@@ -536,6 +536,21 @@ describe("mid-year policy change", () => {
     expect(r.lineReviews["S:AREA_CHAIR"]).toBeUndefined();
     expect((await subs.versionsOf(s.id)).map((x) => x.kind)).toEqual(["SUBMITTED", "APPROVED_SNAPSHOT", "POLICY_RECOMPUTED"]);
     await expect(recompute.recomputeSubmission(s.id, "again", ADMIN)).rejects.toThrow(/already uses/);
+  });
+});
+
+describe("faculty category", () => {
+  it("is always derived from the designation (Junior Faculty and Librarian are Junior)", async () => {
+    const { fac } = await mods();
+    const base = { email: "", designationKey: "", dateOfJoining: "2020-01-01", researchStatus: "RESEARCH_ACTIVE", employeeId: "", dateOfExit: "", active: true };
+    const make = (email: string, designationKey: string) => fac.createFaculty({ ...base, displayName: `Cat ${email}`, email, designationKey }, ADMIN);
+    expect((await make("cat.prof@example.edu", "PROFESSOR")).facultyCategory).toBe("STANDARD");
+    expect((await make("cat.jf@example.edu", "JUNIOR_FACULTY")).facultyCategory).toBe("JUNIOR");
+    const lib = await make("cat.lib@example.edu", "LIBRARIAN");
+    expect(lib.facultyCategory).toBe("JUNIOR");
+    // Changing the designation changes the category; any category sent by a client is ignored.
+    const moved = await fac.updateFaculty(lib.id, lib._rev, { ...base, displayName: lib.displayName, email: lib.email, designationKey: "ASSISTANT_PROFESSOR", facultyCategory: "JUNIOR" } as Parameters<typeof fac.updateFaculty>[2], "Promoted", ADMIN);
+    expect(moved.facultyCategory).toBe("STANDARD");
   });
 });
 
